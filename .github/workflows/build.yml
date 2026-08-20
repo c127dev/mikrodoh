@@ -301,16 +301,16 @@ jobs:
           platforms: ${{ matrix.board.platform }}
           build-args: MIKRODOH_TUNE=${{ matrix.board.tune }}
           tags: mikrodoh:${{ matrix.board.variant }}
-          outputs: type=docker,dest=mikrodoh-${{ matrix.board.variant }}.tar
+          outputs: type=docker,dest=mikrodoh-${{ matrix.board.variant }}-tuned.tar
           cache-from: type=gha
 
       - name: Compress
-        run: gzip -9 "mikrodoh-${{ matrix.board.variant }}.tar"
+        run: gzip -9 "mikrodoh-${{ matrix.board.variant }}-tuned.tar"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tarball-${{ matrix.board.variant }}
-          path: mikrodoh-${{ matrix.board.variant }}.tar.gz
+          name: tarball-board-${{ matrix.board.variant }}
+          path: mikrodoh-${{ matrix.board.variant }}-tuned.tar.gz
           retention-days: 1
 
   release:
