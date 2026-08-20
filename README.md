@@ -12,7 +12,7 @@ curl -X POST \
     -H "Accept: application/vnd.github+json" \
     -H "Authorization: Bearer $GH_TOKEN" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
-    https://api.github.com/repos/c127dev/pod-mikrodoh/actions/workflows/build.yml/dispatches \
+    https://api.github.com/repos/c127dev/mikrodoh/actions/workflows/build.yml/dispatches \
     -d '{"ref":"container"}'
 ```
 
@@ -61,7 +61,7 @@ locally when you want the tuning flags from a `boards/*.conf` baked in.
 podman run -d --name mikrodoh \
     --env-file boards/generic-x86_64.conf \
     -p 5353:53/udp \
-    ghcr.io/c127dev/pod-mikrodoh:latest
+    ghcr.io/c127dev/mikrodoh:latest
 ```
 
 Board files ship on `main` under `boards/`. Keys the daemon does not read, such
@@ -85,7 +85,7 @@ writable `root-dir` such as a USB or NVMe partition.
 /container/envs/add name=mikrodoh key=WORKERS value=4
 /container/envs/add name=mikrodoh key=CACHE value=60
 
-/container/add remote-image=c127dev/pod-mikrodoh:latest \
+/container/add remote-image=c127dev/mikrodoh:latest \
     interface=veth-doh envlist=mikrodoh root-dir=usb1/mikrodoh logging=yes
 /container/start 0
 ```
