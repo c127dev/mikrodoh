@@ -91,4 +91,8 @@ void Config::print(std::ostream& os) const {
        << (cpu::has_aes() ? " (AES engine)" : " (no AES engine)") << "\n"
        << "Cipher        : " << cipher_name(cipher) << " -> "
        << (prefer_chacha ? "ChaCha20-Poly1305" : "AES-GCM") << "\n";
+
+    // stdout is a pipe under a container runtime, so without this the banner
+    // sits in the buffer until the process exits.
+    os.flush();
 }
