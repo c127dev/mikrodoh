@@ -78,13 +78,14 @@ writable `root-dir` such as a USB or NVMe partition.
 /interface/bridge/port/add bridge=containers interface=veth-doh
 /ip/address/add address=172.17.0.1/24 interface=containers
 
+# The host goes in registry-url, not in remote-image. RouterOS prepends it.
 /container/config/set registry-url=https://ghcr.io tmpdir=usb1/pull
 
 /container/envs/add name=mikrodoh key=CIPHER value=auto
 /container/envs/add name=mikrodoh key=WORKERS value=4
 /container/envs/add name=mikrodoh key=CACHE value=60
 
-/container/add remote-image=ghcr.io/c127dev/pod-mikrodoh:latest \
+/container/add remote-image=c127dev/pod-mikrodoh:latest \
     interface=veth-doh envlist=mikrodoh root-dir=usb1/mikrodoh logging=yes
 /container/start 0
 ```
