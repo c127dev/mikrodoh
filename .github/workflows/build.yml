@@ -1,0 +1,401 @@
+name: build
+
+# main carries source only, so nothing there triggers this. Start a build from
+# the Actions tab with this branch selected, or from anywhere with a
+# fine-grained token holding Actions read and write:
+# POST /repos/{owner}/{repo}/actions/workflows/build.yml/dispatches {"ref":"container"}
+on:
+  workflow_dispatch:
+  # Left open for a future branch that only holds callers.
+  workflow_call:
+
+# Declared here because no caller job grants them any more.
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      stable: ${{ steps.plan.outputs.stable }}
+      last: ${{ steps.plan.outputs.last }}
+      tags: ${{ steps.plan.outputs.tags }}
+      sha: ${{ steps.plan.outputs.sha }}
+      boards: ${{ steps.plan.outputs.boards }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Compare VERSION against the last stable release
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Resolved once here: every job checks out main, and a dispatch on
+          # the container branch would make GITHUB_SHA point at the wrong tree.
+          sha=$(git rev-parse HEAD)
+
+          version=$(tr -d '[:space:]' < VERSION)
+          if [ -z "$version" ]; then
+            echo "VERSION is empty" >&2
+            exit 1
+          fi
+
+          # /releases/latest skips drafts and pre-releases, so a run of
+          # pre-releases never moves the comparison point.
+          last=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+
+          previous=""
+          if [ -n "$last" ]; then
+            previous=$(gh api "repos/$GITHUB_REPOSITORY/contents/VERSION?ref=$last" \
+              -H "Accept: application/vnd.github.raw" 2>/dev/null | tr -d '[:space:]' || true)
+          fi
+
+          if [ -n "$previous" ] && [ "$version" = "$previous" ]; then
+            stable=false
+            tag="v$version-pre.$GITHUB_RUN_NUMBER"
+            channel=edge
+          else
+            stable=true
+            tag="v$version"
+            channel=latest
+          fi
+
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+
+          echo "version=$version"   >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"           >> "$GITHUB_OUTPUT"
+          echo "stable=$stable"     >> "$GITHUB_OUTPUT"
+          echo "last=$last"         >> "$GITHUB_OUTPUT"
+          echo "sha=$sha"           >> "$GITHUB_OUTPUT"
+          {
+            echo "tags<<TAGS"
+            printf '%s\n' "$image:$channel" "$image:$tag" "$image:sha-${sha::7}"
+            echo "TAGS"
+          } >> "$GITHUB_OUTPUT"
+
+          # A board file asks for a tuned image by setting MIKRODOH_VARIANT.
+          boards=$(
+            for f in boards/*.conf; do
+              [ -f "$f" ] || continue
+              variant=$(sed -n 's/^MIKRODOH_VARIANT=//p' "$f" | tr -d '"')
+              platform=$(sed -n 's/^MIKRODOH_PLATFORM=//p' "$f" | tr -d '"')
+              [ -n "$variant" ] && [ -n "$platform" ] || continue
+              tune=$(sed -n 's/^MIKRODOH_TUNE=//p' "$f" | tr -d '"')
+              jq -cn --arg v "$variant" --arg p "$platform" --arg t "$tune" \
+                '{variant:$v, platform:$p, tune:$t}'
+            done | jq -sc .
+          )
+          echo "boards=$boards" >> "$GITHUB_OUTPUT"
+
+          echo "$tag (stable=$stable), last stable ${last:-none}" >> "$GITHUB_STEP_SUMMARY"
+          echo "board images: $boards" >> "$GITHUB_STEP_SUMMARY"
+
+  image:
+    needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Check out container recipe
+        uses: actions/checkout@v4
+        with:
+          ref: container
+          path: .container
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Docker Hub carries stable releases only, so pre-releases never move
+      # docker.io/c127/mikrodoh:latest. Skipped when the token is absent, which
+      # is what a fork or a repository without the secret looks like.
+      - name: Docker Hub login
+        id: dockerhub
+        env:
+          STABLE: ${{ needs.plan.outputs.stable }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ "$STABLE" != "true" ]; then
+            echo "pre-release, GHCR only"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${DOCKERHUB_TOKEN:-}" ]; then
+            echo "DOCKERHUB_TOKEN is not set, GHCR only"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "$DOCKERHUB_TOKEN" \
+            | docker login docker.io -u "${DOCKERHUB_USERNAME:-c127}" --password-stdin
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Tag list
+        id: tags
+        env:
+          GHCR_TAGS: ${{ needs.plan.outputs.tags }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          DOCKERHUB: ${{ steps.dockerhub.outputs.enabled }}
+        run: |
+          set -euo pipefail
+          {
+            echo "list<<TAGS"
+            printf '%s\n' "$GHCR_TAGS"
+            if [ "$DOCKERHUB" = "true" ]; then
+              printf '%s\n' "docker.io/c127/mikrodoh:v$VERSION" "docker.io/c127/mikrodoh:latest"
+            fi
+            echo "TAGS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .container/Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64
+          push: true
+          tags: ${{ steps.tags.outputs.list }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  tarball:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+          - platform: linux/arm64
+            arch: arm64
+          - platform: linux/arm/v7
+            arch: armv7
+          - platform: linux/riscv64
+            arch: riscv64
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Check out container recipe
+        uses: actions/checkout@v4
+        with:
+          ref: container
+          path: .container
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Single-architecture image saved to a file, which is what an offline
+      # RouterOS device imports with /container/add file=.
+      - name: Build ${{ matrix.arch }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .container/Dockerfile
+          platforms: ${{ matrix.platform }}
+          tags: mikrodoh:${{ matrix.arch }}
+          outputs: type=docker,dest=mikrodoh-${{ matrix.arch }}.tar
+          cache-from: type=gha
+
+      - name: Compress
+        run: gzip -9 "mikrodoh-${{ matrix.arch }}.tar"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball-${{ matrix.arch }}
+          path: mikrodoh-${{ matrix.arch }}.tar.gz
+          retention-days: 1
+
+  # Per-board images, GHCR only. Docker Hub carries the generic multi-architecture
+  # image alone; RouterOS pulls a tuned one straight from ghcr.io with
+  # /container/add remote-image=.
+  variant:
+    needs: plan
+    if: needs.plan.outputs.stable == 'true' && needs.plan.outputs.boards != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: ${{ fromJSON(needs.plan.outputs.boards) }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Check out container recipe
+        uses: actions/checkout@v4
+        with:
+          ref: container
+          path: .container
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag list
+        id: tags
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          VARIANT: ${{ matrix.board.variant }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          {
+            echo "list<<TAGS"
+            printf '%s\n' "$image:v$VERSION-$VARIANT" "$image:$VARIANT"
+            echo "TAGS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push ${{ matrix.board.variant }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .container/Dockerfile
+          platforms: ${{ matrix.board.platform }}
+          build-args: MIKRODOH_TUNE=${{ matrix.board.tune }}
+          push: true
+          tags: ${{ steps.tags.outputs.list }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Same build, cached, written to a file for offline installs.
+      - name: Save ${{ matrix.board.variant }} tarball
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .container/Dockerfile
+          platforms: ${{ matrix.board.platform }}
+          build-args: MIKRODOH_TUNE=${{ matrix.board.tune }}
+          tags: mikrodoh:${{ matrix.board.variant }}
+          outputs: type=docker,dest=mikrodoh-${{ matrix.board.variant }}.tar
+          cache-from: type=gha
+
+      - name: Compress
+        run: gzip -9 "mikrodoh-${{ matrix.board.variant }}.tar"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball-${{ matrix.board.variant }}
+          path: mikrodoh-${{ matrix.board.variant }}.tar.gz
+          retention-days: 1
+
+  release:
+    needs: [plan, image, tarball, variant]
+    # variant is skipped on pre-releases, which must not skip the release too.
+    if: >-
+      always()
+      && needs.image.result == 'success'
+      && needs.tarball.result == 'success'
+      && (needs.variant.result == 'success' || needs.variant.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tarball-*
+          merge-multiple: true
+
+      - name: Write notes
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          LAST: ${{ needs.plan.outputs.last }}
+          STABLE: ${{ needs.plan.outputs.stable }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          range=""
+          if [ -n "$LAST" ] && git rev-parse -q --verify "refs/tags/$LAST" >/dev/null; then
+            range="$LAST..HEAD"
+          fi
+
+          {
+            if [ "$STABLE" = "true" ]; then
+              echo "Version $VERSION."
+            else
+              echo "Pre-release of version $VERSION, built from ${SHA::7}."
+              echo "It stays a pre-release until VERSION changes."
+            fi
+            echo
+            echo '```'
+            echo "podman pull $image:$TAG"
+            echo '```'
+            echo
+            echo "Architectures: amd64, arm64, armv7, riscv64. The attached tarballs are"
+            echo "for offline installs: gunzip, then /container/add file=."
+            echo
+
+            if [ -n "$range" ]; then
+              echo "## Commits since $LAST"
+              echo
+              git log --no-merges --pretty='- %s (%h)' "$range"
+              echo
+              echo "## Contributors"
+              echo
+              git log --pretty='%an' "$range" | sort -u | sed 's/^/- /'
+              echo
+              echo "**Full changelog**: https://github.com/$GITHUB_REPOSITORY/compare/$LAST...$TAG"
+            else
+              echo "## Commits"
+              echo
+              git log --no-merges --pretty='- %s (%h)' -20
+            fi
+          } > notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          STABLE: ${{ needs.plan.outputs.stable }}
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$STABLE" = "true" ]; then
+            gh release create "$TAG" \
+              --target "$SHA" \
+              --title "$TAG" \
+              --notes-file notes.md \
+              --latest \
+              mikrodoh-*.tar.gz
+          else
+            gh release create "$TAG" \
+              --target "$SHA" \
+              --title "$TAG" \
+              --notes-file notes.md \
+              --prerelease \
+              mikrodoh-*.tar.gz
+          fi
