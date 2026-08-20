@@ -33,6 +33,35 @@ case. `CIPHER=auto` probes the CPU at startup and picks accordingly:
 `CIPHER=chacha` and `CIPHER=aes` override the probe. The selection is printed in
 the startup banner.
 
+## OpenSSL assembly
+
+The record crypto belongs to OpenSSL, not to this daemon. OpenSSL carries
+hand-written assembly for both AEADs and dispatches on CPU features at runtime:
+
+| Target | ChaCha20 | Poly1305 |
+| --- | --- | --- |
+| ARMv7 | `chacha-armv4.pl`, NEON | `poly1305-armv4.pl`, NEON |
+| ARMv8 | `chacha-armv8.pl` | `poly1305-armv8.pl` |
+| x86_64 | `chacha-x86_64.pl`, SSSE3/AVX2 | `poly1305-x86_64.pl` |
+
+Two things have to hold for a ChaCha20 build to reach those paths:
+
+1. OpenSSL was not configured with `no-asm`. Some minimal or hardened builds
+   are, and then ChaCha20 and Poly1305 fall back to portable C, which erases
+   the reason to prefer them.
+2. The kernel reports NEON in `AT_HWCAP`. OpenSSL reads it into
+   `OPENSSL_armcap` at startup and picks the NEON code paths from it.
+
+`scripts/crypto-bench.sh` checks both and measures the two AEADs on the device:
+
+```bash
+./scripts/crypto-bench.sh
+OPENSSL_armcap=0 ./scripts/crypto-bench.sh   # same run with ARM asm disabled
+```
+
+Its numbers are the ground truth for `CIPHER`; the CPU probe is only a
+prediction of them.
+
 ## Configuration
 
 Every key is read from the environment. `boards/` holds ready-made sets, one per
