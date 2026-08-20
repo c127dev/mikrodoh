@@ -1,13 +1,18 @@
 name: build
 
-# main carries source only, so nothing there triggers this. Start a build from
-# the Actions tab with this branch selected, or from anywhere with a
-# fine-grained token holding Actions read and write:
+# main carries source only, so nothing there triggers this. Builds start from a
+# dispatch: the Actions tab with this branch selected, or a fine-grained token
+# holding Actions read and write:
 # POST /repos/{owner}/{repo}/actions/workflows/build.yml/dispatches {"ref":"container"}
+#
+# The push trigger exists so GitHub keeps this workflow registered. It only
+# indexes a dispatchable workflow it has seen on the default branch or seen run,
+# and main holds no workflow file. Every job is gated on the event, so a push to
+# this branch registers the workflow and builds nothing.
 on:
   workflow_dispatch:
-  # Left open for a future branch that only holds callers.
-  workflow_call:
+  push:
+    branches: [container]
 
 # Declared here because no caller job grants them any more.
 permissions:
@@ -16,6 +21,9 @@ permissions:
 
 jobs:
   plan:
+    # A push to this branch registers the workflow and stops here. Every other
+    # job needs plan, so they all skip with it.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.plan.outputs.version }}

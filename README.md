@@ -20,6 +20,10 @@ It checks out `main` for the source and this branch for the `Dockerfile`, then
 publishes `linux/amd64`, `linux/arm64`, `linux/arm/v7` and `linux/riscv64` to
 GHCR. The ref above picks the workflow, never the source.
 
+Pushing to this branch starts a run that skips every job. That run exists only
+to keep the workflow registered, since a dispatch cannot reach a workflow GitHub
+has never indexed.
+
 ## Tags
 
 | Tag | Contents |
