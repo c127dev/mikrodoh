@@ -105,8 +105,36 @@ jobs:
           echo "$tag (stable=$stable), last stable ${last:-none}" >> "$GITHUB_STEP_SUMMARY"
           echo "board images: $boards" >> "$GITHUB_STEP_SUMMARY"
 
-  image:
+  # The tests live on their own branch and build against main. Everything that
+  # publishes needs this job, so a failure here leaves image and tarball
+  # skipped, and release drops out with them.
+  tests:
     needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the source that plan resolved
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - name: Check out the tests
+        uses: actions/checkout@v4
+        with:
+          ref: tests
+          path: .tests
+
+      - name: Build
+        run: |
+          cmake -S .tests -B build-tests -DMIKRODOH_SRC="$PWD"
+          cmake --build build-tests -j "$(nproc)"
+
+      - name: Run
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ./build-tests/mikrodoh_tests
+
+  image:
+    needs: [plan, tests]
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -185,7 +213,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   tarball:
-    needs: plan
+    needs: [plan, tests]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -238,7 +266,7 @@ jobs:
   # image alone; RouterOS pulls a tuned one straight from ghcr.io with
   # /container/add remote-image=.
   variant:
-    needs: plan
+    needs: [plan, tests]
     if: needs.plan.outputs.stable == 'true' && needs.plan.outputs.boards != '[]'
     runs-on: ubuntu-latest
     strategy:
