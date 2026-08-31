@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include "cpu.h"
+#include "net.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -43,6 +44,14 @@ const char* cipher_name(CipherPref p) {
     }
 }
 
+const char* ip_version_name(IpVersion v) {
+    switch (v) {
+        case IpVersion::V4: return "ipv4";
+        case IpVersion::V6: return "ipv6";
+        default:            return "auto";
+    }
+}
+
 }  // namespace
 
 Config Config::from_env() {
@@ -73,6 +82,13 @@ Config Config::from_env() {
     c.max_inflight = env_long("MAX_INFLIGHT", c.max_inflight);
     if (c.max_inflight < 1) c.max_inflight = 1;
 
+    c.ipv6_v6only = env_bool("IPV6_V6ONLY", c.ipv6_v6only);
+
+    std::string ipv = lower(env_str("IP_VERSION", "auto"));
+    if (ipv == "4" || ipv == "ipv4") c.ip_version = IpVersion::V4;
+    else if (ipv == "6" || ipv == "ipv6") c.ip_version = IpVersion::V6;
+    else c.ip_version = IpVersion::Any;
+
     std::string pref = lower(env_str("CIPHER", "auto"));
     if (pref == "chacha" || pref == "chacha20") c.cipher = CipherPref::ChaCha;
     else if (pref == "aes" || pref == "aes-gcm") c.cipher = CipherPref::Aes;
@@ -88,9 +104,9 @@ Config Config::from_env() {
 }
 
 void Config::print(std::ostream& os) const {
-    os << "MikroDoH listening on " << listen_addr << ":" << listen_port << " UDP"
-       << (tcp_enabled ? "+TCP" : "") << "\n"
-       << "Resolver      : " << doh_url << "\n"
+    os << "MikroDoH listening on " << join_host_port(listen_addr, listen_port)
+       << " UDP" << (tcp_enabled ? "+TCP" : "") << "\n"
+       << "Resolver      : " << doh_url << " (" << ip_version_name(ip_version) << ")\n"
        << "Event loops   : " << workers << "\n"
        << "Max in-flight : " << max_inflight << "\n"
        << "Timeouts      : " << connect_timeout_ms << "ms connect, "
@@ -100,6 +116,7 @@ void Config::print(std::ostream& os) const {
        << "Cache TTL     : " << cache_ttl << "s\n"
        << "TCP           : " << (tcp_enabled ? "on" : "off") << ", max "
        << tcp_max_conns << " conns, " << tcp_idle_sec << "s idle\n"
+       << "IPv6 bind     : " << (ipv6_v6only ? "v6only" : "dual stack") << "\n"
        << "CPU           : " << cpu::arch()
        << (cpu::has_aes() ? " (AES engine)" : " (no AES engine)") << "\n"
        << "Cipher        : " << cipher_name(cipher) << " -> "

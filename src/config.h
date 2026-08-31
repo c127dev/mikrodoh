@@ -5,6 +5,9 @@
 
 enum class CipherPref { Auto, ChaCha, Aes };
 
+// Address family used to reach the upstream resolver.
+enum class IpVersion { Any, V4, V6 };
+
 struct Config {
     std::string listen_addr        = "0.0.0.0";
     int         listen_port        = 53;
@@ -18,6 +21,11 @@ struct Config {
     int         connect_timeout_ms = 3000;
     int         request_timeout_ms = 5000;
     CipherPref  cipher             = CipherPref::Auto;
+    IpVersion   ip_version         = IpVersion::Any;
+
+    // Only consulted for an IPv6 bind. False means the same socket also serves
+    // IPv4 clients, which arrive as ::ffff:a.b.c.d.
+    bool ipv6_v6only = false;
 
     bool tcp_enabled  = true;
     int  tcp_max_conns = 128;

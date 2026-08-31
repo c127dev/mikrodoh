@@ -1,13 +1,12 @@
 #include "server.h"
 
 #include "dispatch.h"
+#include "net.h"
 #include "transfer.h"
 
-#include <cstring>
 #include <iostream>
 #include <memory>
 
-#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -30,11 +29,20 @@ UdpServer::~UdpServer() {
 }
 
 bool UdpServer::open() {
-    fd_ = socket(AF_INET, SOCK_DGRAM, 0);
+    sockaddr_storage addr{};
+    socklen_t        addr_len = 0;
+    if (!parse_bind_addr(cfg_.listen_addr, cfg_.listen_port, addr, addr_len)) {
+        std::cerr << "Bad LISTEN_ADDR: " << cfg_.listen_addr << "\n";
+        return false;
+    }
+
+    fd_ = socket(addr.ss_family, SOCK_DGRAM, 0);
     if (fd_ < 0) {
         std::cerr << "Failed to create socket\n";
         return false;
     }
+
+    apply_v6only(fd_, addr, cfg_.ipv6_v6only);
 
     int bufbytes = cfg_.rcvbuf_kb * 1024;
     setsockopt(fd_, SOL_SOCKET, SO_RCVBUF, &bufbytes, sizeof(bufbytes));
@@ -47,21 +55,9 @@ bool UdpServer::open() {
     };
     setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    sockaddr_in addr{};
-    std::memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port   = htons(static_cast<uint16_t>(cfg_.listen_port));
-
-    if (inet_pton(AF_INET, cfg_.listen_addr.c_str(), &addr.sin_addr) != 1) {
-        std::cerr << "Bad LISTEN_ADDR: " << cfg_.listen_addr << "\n";
-        close(fd_);
-        fd_ = -1;
-        return false;
-    }
-
-    if (bind(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        std::cerr << "Failed to bind to UDP " << cfg_.listen_addr << ":"
-                  << cfg_.listen_port << "\n";
+    if (bind(fd_, reinterpret_cast<sockaddr*>(&addr), addr_len) < 0) {
+        std::cerr << "Failed to bind to UDP "
+                  << join_host_port(cfg_.listen_addr, cfg_.listen_port) << "\n";
         close(fd_);
         fd_ = -1;
         return false;

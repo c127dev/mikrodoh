@@ -49,6 +49,11 @@ void DohWorker::configure(CURL* handle) const {
     // which is what keeps every stream on one HTTP/2 connection.
     curl_easy_setopt(handle, CURLOPT_PIPEWAIT, 1L);
 
+    if (cfg_.ip_version != IpVersion::Any)
+        curl_easy_setopt(handle, CURLOPT_IPRESOLVE,
+                         cfg_.ip_version == IpVersion::V6 ? CURL_IPRESOLVE_V6
+                                                          : CURL_IPRESOLVE_V4);
+
     // Without these a stalled transfer holds its in-flight slot forever, and
     // enough of them pin MAX_INFLIGHT with no recovery.
     curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS,

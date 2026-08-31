@@ -17,6 +17,7 @@ find_package(Threads REQUIRED)
 
 add_executable(mikrodoh
     src/main.cpp
+    src/net.cpp
     src/cache.cpp
     src/config.cpp
     src/cpu.cpp

@@ -78,7 +78,9 @@ supported device, in `--env-file` format.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `LISTEN_ADDR` | `0.0.0.0` | Address to bind |
+| `LISTEN_ADDR` | `0.0.0.0` | Address to bind, IPv4 or IPv6 literal |
+| `IPV6_V6ONLY` | `false` | On an IPv6 bind, refuse IPv4 clients |
+| `IP_VERSION` | `auto` | Family used to reach the resolver: `auto`, `4` or `6` |
 | `LISTEN_PORT` | `53` | Port to bind, UDP and TCP |
 | `DOH_URL` | `https://1.1.1.1/dns-query` | Upstream DoH resolver |
 | `CIPHER` | `auto` | `auto`, `chacha` or `aes` |
@@ -96,6 +98,13 @@ supported device, in `--env-file` format.
 
 `LISTEN_ADDR` defaults to every interface because the reference deployment is a
 container with its own network namespace. On a host, set it.
+
+An IPv6 literal is accepted with or without brackets, and may carry a scope
+suffix (`fe80::1%eth0`). `LISTEN_ADDR=::` serves IPv4 clients on the same
+socket, as `::ffff:a.b.c.d`, unless `IPV6_V6ONLY=true`. Only one socket per
+protocol is opened, so serving both families from one process means an IPv6
+bind. `IP_VERSION` is separate: it pins the family used to reach the DoH
+resolver, for a network where one of the two is present but broken.
 
 ### Boards
 

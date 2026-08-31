@@ -1,14 +1,13 @@
 #include "tcp_server.h"
 
 #include "dispatch.h"
+#include "net.h"
 #include "transfer.h"
 
 #include <cerrno>
-#include <cstring>
 #include <ctime>
 #include <iostream>
 
-#include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -41,7 +40,14 @@ TcpServer::~TcpServer() {
 }
 
 bool TcpServer::open() {
-    fd_ = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_storage addr{};
+    socklen_t        addr_len = 0;
+    if (!parse_bind_addr(cfg_.listen_addr, cfg_.listen_port, addr, addr_len)) {
+        std::cerr << "Bad LISTEN_ADDR: " << cfg_.listen_addr << "\n";
+        return false;
+    }
+
+    fd_ = socket(addr.ss_family, SOCK_STREAM, 0);
     if (fd_ < 0) {
         std::cerr << "Failed to create TCP socket\n";
         return false;
@@ -50,22 +56,12 @@ bool TcpServer::open() {
     int one = 1;
     setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
 
-    sockaddr_in addr{};
-    std::memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port   = htons(static_cast<uint16_t>(cfg_.listen_port));
+    apply_v6only(fd_, addr, cfg_.ipv6_v6only);
 
-    if (inet_pton(AF_INET, cfg_.listen_addr.c_str(), &addr.sin_addr) != 1) {
-        std::cerr << "Bad LISTEN_ADDR: " << cfg_.listen_addr << "\n";
-        close(fd_);
-        fd_ = -1;
-        return false;
-    }
-
-    if (bind(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 ||
+    if (bind(fd_, reinterpret_cast<sockaddr*>(&addr), addr_len) < 0 ||
         listen(fd_, kBacklog) < 0) {
-        std::cerr << "Failed to bind to TCP " << cfg_.listen_addr << ":"
-                  << cfg_.listen_port << "\n";
+        std::cerr << "Failed to bind to TCP "
+                  << join_host_port(cfg_.listen_addr, cfg_.listen_port) << "\n";
         close(fd_);
         fd_ = -1;
         return false;
