@@ -1,0 +1,54 @@
+name: unit tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Source ref to test
+        type: string
+        default: main
+      source_branch:
+        description: Branch name to report
+        type: string
+        default: main
+  push:
+    branches: [tests]
+
+permissions:
+  contents: read
+
+jobs:
+  units:
+    runs-on: ubuntu-latest
+    # A push only registers the workflow so dispatches can find it. Until a
+    # workflow has been indexed, the dispatch API answers 404.
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Check out the source under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Check out the tests
+        uses: actions/checkout@v4
+        with:
+          ref: tests
+          path: .tests
+
+      - name: Report what is being tested
+        run: |
+          set -euo pipefail
+          echo "source branch: ${{ inputs.source_branch }}"
+          echo "source commit: $(git rev-parse HEAD)"
+
+      - name: Configure
+        run: cmake -S .tests -B build -DMIKRODOH_SRC="$PWD"
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      - name: Run
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ./build/mikrodoh_tests
