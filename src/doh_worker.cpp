@@ -1,6 +1,7 @@
 #include "doh_worker.h"
 
 #include "cache.h"
+#include "dns.h"
 
 #include <iostream>
 
@@ -14,10 +15,14 @@ size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
     return bytes;
 }
 
+// An idle handle keeps its connection warm, but one per completed transfer
+// would grow the pool to MAX_INFLIGHT and hold that many sockets open.
+constexpr std::size_t kMaxIdleHandles = 64;
+
 }  // namespace
 
-DohWorker::DohWorker(const Config& cfg, DnsCache& cache, Stats& stats, int udp_socket)
-    : cfg_(cfg), cache_(cache), stats_(stats), udp_socket_(udp_socket) {
+DohWorker::DohWorker(const Config& cfg, DnsCache& cache, Stats& stats)
+    : cfg_(cfg), cache_(cache), stats_(stats) {
     multi_ = curl_multi_init();
     curl_multi_setopt(multi_, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
     curl_multi_setopt(multi_, CURLMOPT_MAX_CONCURRENT_STREAMS, 1000L);
@@ -43,6 +48,13 @@ void DohWorker::configure(CURL* handle) const {
     // Wait for the existing multiplexed connection instead of opening another,
     // which is what keeps every stream on one HTTP/2 connection.
     curl_easy_setopt(handle, CURLOPT_PIPEWAIT, 1L);
+
+    // Without these a stalled transfer holds its in-flight slot forever, and
+    // enough of them pin MAX_INFLIGHT with no recovery.
+    curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS,
+                     static_cast<long>(cfg_.request_timeout_ms));
+    curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS,
+                     static_cast<long>(cfg_.connect_timeout_ms));
 
     if (cfg_.prefer_chacha) {
         curl_easy_setopt(handle, CURLOPT_TLS13_CIPHERS, "TLS_CHACHA20_POLY1305_SHA256");
@@ -75,11 +87,18 @@ CURL* DohWorker::acquire() {
     return handle;
 }
 
+void DohWorker::release(CURL* handle) {
+    if (idle_.size() < kMaxIdleHandles) {
+        idle_.push_back(handle);
+        return;
+    }
+    curl_easy_cleanup(handle);
+}
+
 void DohWorker::start(Transfer* t) {
     CURL* handle = acquire();
     if (!handle) {
-        stats_.inflight--;
-        delete t;
+        finish(t, false);
         return;
     }
 
@@ -88,6 +107,25 @@ void DohWorker::start(Transfer* t) {
     curl_easy_setopt(handle, CURLOPT_WRITEDATA, &t->response);
     curl_easy_setopt(handle, CURLOPT_PRIVATE, t);
     curl_multi_add_handle(multi_, handle);
+}
+
+void DohWorker::finish(Transfer* t, bool ok) {
+    if (ok) {
+        t->reply(t->response.data(), t->response.size());
+        stats_.served++;
+        cache_.store(t->cache_key, t->response);
+    } else {
+        // Say so rather than staying silent: a client with no answer waits out
+        // its own timeout before trying anything else.
+        std::vector<std::uint8_t> fail = dns::make_error(
+            t->payload.data(), t->payload.size(), dns::kRcodeServFail);
+        if (!fail.empty()) t->reply(fail.data(), fail.size());
+        stats_.failed++;
+    }
+
+    if (t->conn) t->conn->inflight--;
+    delete t;
+    stats_.inflight--;
 }
 
 void DohWorker::reap() {
@@ -104,20 +142,16 @@ void DohWorker::reap() {
         long http_code = 0;
         curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &http_code);
 
-        if (msg->data.result == CURLE_OK && http_code == 200 && !t->response.empty()) {
-            sendto(udp_socket_, t->response.data(), t->response.size(), 0,
-                   reinterpret_cast<sockaddr*>(&t->client_addr), t->addr_len);
-            stats_.served++;
-            cache_.store(t->cache_key, t->response);
-        } else if (msg->data.result != CURLE_OK) {
+        bool ok = msg->data.result == CURLE_OK && http_code == 200 &&
+                  t->response.size() >= dns::kHeaderLen;
+
+        if (msg->data.result != CURLE_OK)
             std::cerr << "DoH transfer failed: "
                       << curl_easy_strerror(msg->data.result) << "\n";
-        }
 
         curl_multi_remove_handle(multi_, handle);
-        idle_.push_back(handle);  // keeps the handle's connection warm
-        delete t;
-        stats_.inflight--;
+        release(handle);
+        finish(t, ok);
     }
 }
 

@@ -48,6 +48,7 @@ const char* cipher_name(CipherPref p) {
 Config Config::from_env() {
     Config c;
 
+    c.listen_addr = env_str("LISTEN_ADDR", c.listen_addr);
     c.listen_port = env_int("LISTEN_PORT", env_int("PORT", c.listen_port));
     c.doh_url     = env_str("DOH_URL", c.doh_url);
 
@@ -61,6 +62,13 @@ Config Config::from_env() {
     c.tcp_keep_alive = env_int("TCP_KEEP_ALIVE", c.tcp_keep_alive);
     c.cache_ttl      = env_int("CACHE", c.cache_ttl);
     c.rcvbuf_kb      = env_int("RCVBUF_KB", c.rcvbuf_kb);
+
+    c.connect_timeout_ms = env_int("CONNECT_TIMEOUT_MS", c.connect_timeout_ms);
+    c.request_timeout_ms = env_int("REQUEST_TIMEOUT_MS", c.request_timeout_ms);
+
+    c.tcp_enabled   = env_bool("TCP", c.tcp_enabled);
+    c.tcp_max_conns = env_int("TCP_MAX_CONNS", c.tcp_max_conns);
+    c.tcp_idle_sec  = env_int("TCP_IDLE_SEC", c.tcp_idle_sec);
 
     c.max_inflight = env_long("MAX_INFLIGHT", c.max_inflight);
     if (c.max_inflight < 1) c.max_inflight = 1;
@@ -80,13 +88,18 @@ Config Config::from_env() {
 }
 
 void Config::print(std::ostream& os) const {
-    os << "MikroDoH listening on UDP port " << listen_port << "\n"
+    os << "MikroDoH listening on " << listen_addr << ":" << listen_port << " UDP"
+       << (tcp_enabled ? "+TCP" : "") << "\n"
        << "Resolver      : " << doh_url << "\n"
        << "Event loops   : " << workers << "\n"
        << "Max in-flight : " << max_inflight << "\n"
+       << "Timeouts      : " << connect_timeout_ms << "ms connect, "
+       << request_timeout_ms << "ms request\n"
        << "Check cert    : " << (check_cert ? "true" : "false") << "\n"
        << "TCP keep-alive: " << tcp_keep_alive << "s\n"
        << "Cache TTL     : " << cache_ttl << "s\n"
+       << "TCP           : " << (tcp_enabled ? "on" : "off") << ", max "
+       << tcp_max_conns << " conns, " << tcp_idle_sec << "s idle\n"
        << "CPU           : " << cpu::arch()
        << (cpu::has_aes() ? " (AES engine)" : " (no AES engine)") << "\n"
        << "Cipher        : " << cipher_name(cipher) << " -> "

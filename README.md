@@ -15,6 +15,15 @@ RB4011iGS+ running the proxy in a RouterOS v7 container.
 - **Load shedding.** Queries above the in-flight cap are dropped instead of
   queued, so accepted queries keep bounded latency under burst.
 - **Cipher selection from CPU features.** See below.
+- **UDP and TCP.** A stub that gets a truncated answer retries over TCP, so
+  TCP/53 has to answer. The TCP listener follows RFC 7766: two-byte length
+  prefix, several queries pipelined on one connection, responses written in
+  whatever order they finish, connection dropped once idle.
+- **Queries are validated before they leave.** A datagram that is not a
+  well-formed query, or is already a response, is dropped rather than
+  forwarded or answered, so the proxy cannot be used as a reflector.
+- **A failed lookup answers SERVFAIL** instead of nothing, so the client fails
+  over immediately rather than waiting out its own timeout.
 
 ## Cipher selection
 
@@ -69,15 +78,24 @@ supported device, in `--env-file` format.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `LISTEN_PORT` | `53` | UDP port to bind |
+| `LISTEN_ADDR` | `0.0.0.0` | Address to bind |
+| `LISTEN_PORT` | `53` | Port to bind, UDP and TCP |
 | `DOH_URL` | `https://1.1.1.1/dns-query` | Upstream DoH resolver |
 | `CIPHER` | `auto` | `auto`, `chacha` or `aes` |
 | `WORKERS` | CPU cores | Event-loop threads; track cores, not query volume |
 | `MAX_INFLIGHT` | `512` | In-flight cap before queries are shed |
 | `RCVBUF_KB` | `4096` | UDP receive/send buffer, in kB |
 | `CHECK_CERT` | `true` | Verify the resolver's certificate |
-| `TCP_KEEP_ALIVE` | `0` | TCP keep-alive interval in seconds, `0` disables |
+| `CONNECT_TIMEOUT_MS` | `3000` | Upstream connect timeout |
+| `REQUEST_TIMEOUT_MS` | `5000` | Upstream request timeout |
+| `TCP_KEEP_ALIVE` | `0` | Keep-alive interval on the upstream connection, `0` disables |
+| `TCP` | `true` | Serve DNS over TCP as well as UDP |
+| `TCP_MAX_CONNS` | `128` | Accepted TCP connections; further ones are closed at once |
+| `TCP_IDLE_SEC` | `10` | Close a TCP connection after this long with no query |
 | `CACHE` | `0` | Response TTL in seconds, `0` disables the cache |
+
+`LISTEN_ADDR` defaults to every interface because the reference deployment is a
+container with its own network namespace. On a host, set it.
 
 ### Boards
 

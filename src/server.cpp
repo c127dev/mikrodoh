@@ -1,10 +1,11 @@
 #include "server.h"
 
-#include "cache.h"
-#include "doh_worker.h"
+#include "dispatch.h"
+#include "transfer.h"
 
 #include <cstring>
 #include <iostream>
+#include <memory>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -21,8 +22,8 @@ constexpr int kRecvTimeoutMs = 200;
 
 }  // namespace
 
-UdpServer::UdpServer(const Config& cfg, DnsCache& cache, Stats& stats)
-    : cfg_(cfg), cache_(cache), stats_(stats) {}
+UdpServer::UdpServer(const Config& cfg, Dispatcher& dispatcher)
+    : cfg_(cfg), dispatcher_(dispatcher) {}
 
 UdpServer::~UdpServer() {
     if (fd_ >= 0) close(fd_);
@@ -48,12 +49,19 @@ bool UdpServer::open() {
 
     sockaddr_in addr{};
     std::memset(&addr, 0, sizeof(addr));
-    addr.sin_family      = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port        = htons(static_cast<uint16_t>(cfg_.listen_port));
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons(static_cast<uint16_t>(cfg_.listen_port));
+
+    if (inet_pton(AF_INET, cfg_.listen_addr.c_str(), &addr.sin_addr) != 1) {
+        std::cerr << "Bad LISTEN_ADDR: " << cfg_.listen_addr << "\n";
+        close(fd_);
+        fd_ = -1;
+        return false;
+    }
 
     if (bind(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        std::cerr << "Failed to bind to port " << cfg_.listen_port << "\n";
+        std::cerr << "Failed to bind to UDP " << cfg_.listen_addr << ":"
+                  << cfg_.listen_port << "\n";
         close(fd_);
         fd_ = -1;
         return false;
@@ -62,50 +70,23 @@ bool UdpServer::open() {
     return true;
 }
 
-void UdpServer::run(std::vector<std::unique_ptr<DohWorker>>& workers,
-                    const std::atomic<bool>&                 stop) {
-    std::uint8_t              buffer[kMaxDnsPacket];
-    std::vector<std::uint8_t> cached;
-    unsigned                  next = 0;
+void UdpServer::run(const std::atomic<bool>& stop) {
+    std::uint8_t buffer[kMaxDnsPacket];
 
     while (!stop.load(std::memory_order_relaxed)) {
-        sockaddr_in client{};
-        socklen_t   client_len = sizeof(client);
+        sockaddr_storage client{};
+        socklen_t        client_len = sizeof(client);
 
         ssize_t len = recvfrom(fd_, buffer, sizeof(buffer), 0,
                                reinterpret_cast<sockaddr*>(&client), &client_len);
         if (len <= 0) continue;
 
-        std::string key = cache_.enabled()
-                              ? DnsCache::key_of(buffer, static_cast<std::size_t>(len))
-                              : std::string();
-
-        if (cache_.lookup(key, cached)) {
-            cached[0] = buffer[0];  // the client's transaction ID, not the cached one
-            cached[1] = buffer[1];
-            sendto(fd_, cached.data(), cached.size(), 0,
-                   reinterpret_cast<sockaddr*>(&client), client_len);
-            stats_.served++;
-            continue;
-        }
-
-        // Shed instead of queueing without bound: accepted queries keep their
-        // latency and the box degrades gracefully under burst.
-        if (stats_.inflight.load(std::memory_order_relaxed) >= cfg_.max_inflight) {
-            unsigned long dropped = ++stats_.dropped;
-            if ((dropped & 0x3FF) == 0)
-                std::cerr << "[shed] dropped " << dropped << " queries (in-flight cap "
-                          << cfg_.max_inflight << ")\n";
-            continue;
-        }
-
-        auto* t        = new Transfer();
+        auto t         = std::make_unique<Transfer>();
+        t->udp_fd      = fd_;
         t->client_addr = client;
         t->addr_len    = client_len;
         t->payload.assign(buffer, buffer + len);
-        t->cache_key = key;
 
-        stats_.inflight++;
-        workers[next++ % workers.size()]->submit(t);
+        dispatcher_.dispatch(std::move(t));
     }
 }

@@ -1,20 +1,16 @@
 #pragma once
 
 #include <atomic>
-#include <memory>
-#include <vector>
 
 #include "config.h"
 #include "stats.h"
 
-class DnsCache;
-class DohWorker;
+class Dispatcher;
 
-// Producer: reads UDP queries, answers from cache when it can, otherwise
-// round-robins them onto the workers.
+// Producer: reads UDP queries off one socket and hands them to the dispatcher.
 class UdpServer {
 public:
-    UdpServer(const Config& cfg, DnsCache& cache, Stats& stats);
+    UdpServer(const Config& cfg, Dispatcher& dispatcher);
     ~UdpServer();
 
     UdpServer(const UdpServer&)            = delete;
@@ -23,12 +19,10 @@ public:
     bool open();
     int  fd() const { return fd_; }
 
-    void run(std::vector<std::unique_ptr<DohWorker>>& workers,
-             const std::atomic<bool>&                 stop);
+    void run(const std::atomic<bool>& stop);
 
 private:
     const Config& cfg_;
-    DnsCache&     cache_;
-    Stats&        stats_;
+    Dispatcher&   dispatcher_;
     int           fd_ = -1;
 };

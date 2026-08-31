@@ -20,8 +20,13 @@ add_executable(mikrodoh
     src/cache.cpp
     src/config.cpp
     src/cpu.cpp
+    src/dispatch.cpp
+    src/dns.cpp
     src/doh_worker.cpp
     src/server.cpp
+    src/tcp_conn.cpp
+    src/tcp_server.cpp
+    src/transfer.cpp
 )
 
 target_compile_options(mikrodoh PRIVATE -O2 -pipe ${MIKRODOH_TUNE_ARGS})
