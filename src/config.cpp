@@ -4,7 +4,9 @@
 #include "net.h"
 
 #include <cctype>
+#include <cstddef>
 #include <cstdlib>
+#include <string>
 #include <ostream>
 #include <thread>
 
@@ -59,7 +61,13 @@ Config Config::from_env() {
 
     c.listen_addr = env_str("LISTEN_ADDR", c.listen_addr);
     c.listen_port = env_int("LISTEN_PORT", env_int("PORT", c.listen_port));
-    c.doh_url     = env_str("DOH_URL", c.doh_url);
+    c.doh_urls.assign(1, env_str("DOH_URL", c.doh_urls.front()));
+    for (int i = 1;; i++) {
+        std::string key = "DOH_FAILOVER_URL_" + std::to_string(i);
+        std::string url = env_str(key.c_str(), "");
+        if (url.empty()) break;  // the list ends at the first gap
+        c.doh_urls.push_back(url);
+    }
 
     c.workers = env_int("WORKERS", 0);
     if (c.workers < 1) {
@@ -106,8 +114,13 @@ Config Config::from_env() {
 void Config::print(std::ostream& os) const {
     os << "MikroDoH listening on " << join_host_port(listen_addr, listen_port)
        << " UDP" << (tcp_enabled ? "+TCP" : "") << "\n"
-       << "Resolver      : " << doh_url << " (" << ip_version_name(ip_version) << ")\n"
-       << "Event loops   : " << workers << "\n"
+       << "Resolver      : " << doh_urls.front() << " ("
+       << ip_version_name(ip_version) << ")\n";
+
+    for (std::size_t i = 1; i < doh_urls.size(); i++)
+        os << "Failover " << i << "    : " << doh_urls[i] << "\n";
+
+    os << "Event loops   : " << workers << "\n"
        << "Max in-flight : " << max_inflight << "\n"
        << "Timeouts      : " << connect_timeout_ms << "ms connect, "
        << request_timeout_ms << "ms request\n"

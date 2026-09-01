@@ -83,6 +83,7 @@ supported device, in `--env-file` format.
 | `IP_VERSION` | `auto` | Family used to reach the resolver: `auto`, `4` or `6` |
 | `LISTEN_PORT` | `53` | Port to bind, UDP and TCP |
 | `DOH_URL` | `https://1.1.1.1/dns-query` | Upstream DoH resolver |
+| `DOH_FAILOVER_URL_n` | unset | Resolvers tried, in order, when the ones before them fail. `n` starts at 1 and the list stops at the first gap |
 | `CIPHER` | `auto` | `auto`, `chacha` or `aes` |
 | `WORKERS` | CPU cores | Event-loop threads; track cores, not query volume |
 | `MAX_INFLIGHT` | `512` | In-flight cap before queries are shed |
@@ -105,6 +106,22 @@ socket, as `::ffff:a.b.c.d`, unless `IPV6_V6ONLY=true`. Only one socket per
 protocol is opened, so serving both families from one process means an IPv6
 bind. `IP_VERSION` is separate: it pins the family used to reach the DoH
 resolver, for a network where one of the two is present but broken.
+
+### Failover
+
+```
+DOH_URL=https://1.1.1.1/dns-query
+DOH_FAILOVER_URL_1=https://9.9.9.9/dns-query
+DOH_FAILOVER_URL_2=https://8.8.8.8/dns-query
+```
+
+A query that fails upstream - connect error, timeout, non-200, or a body too
+short to be a DNS message - is retried against the next resolver in the list.
+Only once the list is exhausted does the client get SERVFAIL. Failover is per
+query and stateless: there is no health tracking, so every query pays the
+primary's failure again. The worst-case latency is therefore the sum of the
+timeouts of all configured resolvers, which is worth keeping in mind when
+setting `REQUEST_TIMEOUT_MS` alongside a long list.
 
 ### Boards
 

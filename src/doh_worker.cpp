@@ -40,7 +40,8 @@ DohWorker::~DohWorker() {
 }
 
 void DohWorker::configure(CURL* handle) const {
-    curl_easy_setopt(handle, CURLOPT_URL, cfg_.doh_url.c_str());
+    // The URL is not set here: a pooled handle can be reused for a different
+    // resolver, so start() sets it per transfer.
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers_);
     curl_easy_setopt(handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
@@ -101,12 +102,19 @@ void DohWorker::release(CURL* handle) {
 }
 
 void DohWorker::start(Transfer* t) {
+    if (t->attempt >= cfg_.doh_urls.size()) {
+        finish(t, false);
+        return;
+    }
+
     CURL* handle = acquire();
     if (!handle) {
         finish(t, false);
         return;
     }
 
+    t->response.clear();
+    curl_easy_setopt(handle, CURLOPT_URL, cfg_.doh_urls[t->attempt].c_str());
     curl_easy_setopt(handle, CURLOPT_POSTFIELDS, t->payload.data());
     curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(t->payload.size()));
     curl_easy_setopt(handle, CURLOPT_WRITEDATA, &t->response);
@@ -150,12 +158,20 @@ void DohWorker::reap() {
         bool ok = msg->data.result == CURLE_OK && http_code == 200 &&
                   t->response.size() >= dns::kHeaderLen;
 
-        if (msg->data.result != CURLE_OK)
-            std::cerr << "DoH transfer failed: "
-                      << curl_easy_strerror(msg->data.result) << "\n";
+        if (!ok)
+            std::cerr << "DoH transfer failed on " << cfg_.doh_urls[t->attempt]
+                      << ": " << curl_easy_strerror(msg->data.result)
+                      << " (HTTP " << http_code << ")\n";
 
         curl_multi_remove_handle(multi_, handle);
         release(handle);
+
+        if (!ok && t->attempt + 1 < cfg_.doh_urls.size()) {
+            t->attempt++;
+            start(t);
+            continue;
+        }
+
         finish(t, ok);
     }
 }

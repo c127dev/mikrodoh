@@ -2,6 +2,7 @@
 
 #include <iosfwd>
 #include <string>
+#include <vector>
 
 enum class CipherPref { Auto, ChaCha, Aes };
 
@@ -11,7 +12,9 @@ enum class IpVersion { Any, V4, V6 };
 struct Config {
     std::string listen_addr        = "0.0.0.0";
     int         listen_port        = 53;
-    std::string doh_url            = "https://1.1.1.1/dns-query";
+    // First entry is DOH_URL, the rest are the DOH_FAILOVER_URL_n in order. A
+    // query walks the list until one resolver answers.
+    std::vector<std::string> doh_urls = {"https://1.1.1.1/dns-query"};
     int         workers            = 0;
     bool        check_cert         = true;
     int         tcp_keep_alive     = 0;

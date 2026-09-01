@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -18,6 +19,10 @@ struct Transfer {
     std::vector<std::uint8_t> payload;
     std::vector<std::uint8_t> response;
     std::string               cache_key;
+
+    // Index into Config::doh_urls. Bumped on each upstream failure until the
+    // list runs out.
+    std::size_t attempt = 0;
 
     int                      udp_fd = -1;
     sockaddr_storage         client_addr{};
