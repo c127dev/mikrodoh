@@ -3,6 +3,7 @@
 #include "config.h"
 
 #include <cstdlib>
+#include <string>
 
 namespace {
 
@@ -14,8 +15,13 @@ const char* kKeys[] = {"LISTEN_ADDR",   "LISTEN_PORT",        "PORT",
                        "REQUEST_TIMEOUT_MS", "TCP",           "TCP_MAX_CONNS",
                        "TCP_IDLE_SEC"};
 
+// DOH_FAILOVER_URL_1.. are read until the first gap, so clear a few extra.
+const int kMaxFailoverKeys = 4;
+
 void clear_env() {
     for (const char* k : kKeys) unsetenv(k);
+    for (int i = 1; i <= kMaxFailoverKeys; i++)
+        unsetenv(("DOH_FAILOVER_URL_" + std::to_string(i)).c_str());
 }
 
 void set(const char* k, const char* v) { setenv(k, v, 1); }
@@ -28,7 +34,8 @@ TEST(defaults_apply_when_nothing_is_set) {
 
     CHECK(c.listen_addr == "0.0.0.0");
     CHECK(c.listen_port == 53);
-    CHECK(c.doh_url == "https://1.1.1.1/dns-query");
+    CHECK(c.doh_urls.size() == 1);
+    CHECK(c.doh_urls.front() == "https://1.1.1.1/dns-query");
     CHECK(c.check_cert);
     CHECK(c.cache_ttl == 0);
     CHECK(c.max_inflight == 512);
@@ -78,7 +85,7 @@ TEST(booleans_accept_the_usual_spellings) {
 TEST(an_empty_value_is_treated_as_unset) {
     clear_env();
     set("DOH_URL", "");
-    CHECK(Config::from_env().doh_url == "https://1.1.1.1/dns-query");
+    CHECK(Config::from_env().doh_urls.front() == "https://1.1.1.1/dns-query");
 }
 
 TEST(max_inflight_never_drops_below_one) {
@@ -118,4 +125,33 @@ TEST(tcp_can_be_turned_off) {
     clear_env();
     set("TCP", "false");
     CHECK(!Config::from_env().tcp_enabled);
+}
+
+TEST(doh_url_replaces_the_whole_resolver_list) {
+    clear_env();
+    set("DOH_URL", "https://dns.example/dns-query");
+
+    Config c = Config::from_env();
+    CHECK(c.doh_urls.size() == 1);
+    CHECK(c.doh_urls.front() == "https://dns.example/dns-query");
+}
+
+TEST(failover_urls_are_appended_in_order) {
+    clear_env();
+    set("DOH_FAILOVER_URL_1", "https://a.example/dns-query");
+    set("DOH_FAILOVER_URL_2", "https://b.example/dns-query");
+
+    Config c = Config::from_env();
+    CHECK(c.doh_urls.size() == 3);
+    CHECK(c.doh_urls[0] == "https://1.1.1.1/dns-query");
+    CHECK(c.doh_urls[1] == "https://a.example/dns-query");
+    CHECK(c.doh_urls[2] == "https://b.example/dns-query");
+}
+
+TEST(the_failover_list_stops_at_the_first_gap) {
+    clear_env();
+    set("DOH_FAILOVER_URL_2", "https://b.example/dns-query");
+
+    Config c = Config::from_env();
+    CHECK(c.doh_urls.size() == 1);
 }

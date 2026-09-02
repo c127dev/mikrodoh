@@ -27,6 +27,7 @@ add_executable(mikrodoh_tests
     "${MIKRODOH_SRC}/src/config.cpp"
     "${MIKRODOH_SRC}/src/cpu.cpp"
     "${MIKRODOH_SRC}/src/dns.cpp"
+    "${MIKRODOH_SRC}/src/net.cpp"
     "${MIKRODOH_SRC}/src/tcp_conn.cpp"
 )
 
