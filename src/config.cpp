@@ -83,6 +83,9 @@ Config Config::from_env() {
     c.connect_timeout_ms = env_int("CONNECT_TIMEOUT_MS", c.connect_timeout_ms);
     c.request_timeout_ms = env_int("REQUEST_TIMEOUT_MS", c.request_timeout_ms);
 
+    c.stats_interval_sec = env_int("STATS_INTERVAL_SEC", c.stats_interval_sec);
+    if (c.stats_interval_sec < 0) c.stats_interval_sec = 0;
+
     c.tcp_enabled   = env_bool("TCP", c.tcp_enabled);
     c.tcp_max_conns = env_int("TCP_MAX_CONNS", c.tcp_max_conns);
     c.tcp_idle_sec  = env_int("TCP_IDLE_SEC", c.tcp_idle_sec);
@@ -129,6 +132,10 @@ void Config::print(std::ostream& os) const {
        << "Cache TTL     : " << cache_ttl << "s\n"
        << "TCP           : " << (tcp_enabled ? "on" : "off") << ", max "
        << tcp_max_conns << " conns, " << tcp_idle_sec << "s idle\n"
+       << "Stats line    : "
+       << (stats_interval_sec > 0 ? std::to_string(stats_interval_sec) + "s"
+                                  : std::string("off, SIGUSR1 only"))
+       << "\n"
        << "IPv6 bind     : " << (ipv6_v6only ? "v6only" : "dual stack") << "\n"
        << "CPU           : " << cpu::arch()
        << (cpu::has_aes() ? " (AES engine)" : " (no AES engine)") << "\n"

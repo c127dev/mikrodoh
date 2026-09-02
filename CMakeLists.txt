@@ -25,6 +25,7 @@ add_executable(mikrodoh
     src/dns.cpp
     src/doh_worker.cpp
     src/server.cpp
+    src/stats.cpp
     src/tcp_conn.cpp
     src/tcp_server.cpp
     src/transfer.cpp

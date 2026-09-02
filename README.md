@@ -96,6 +96,15 @@ supported device, in `--env-file` format.
 | `TCP_MAX_CONNS` | `128` | Accepted TCP connections; further ones are closed at once |
 | `TCP_IDLE_SEC` | `10` | Close a TCP connection after this long with no query |
 | `CACHE` | `0` | Response TTL in seconds, `0` disables the cache |
+| `STATS_INTERVAL_SEC` | `300` | Seconds between stats lines, `0` disables them |
+
+A stats line reports served, failed, rejected and dropped counts, the
+in-flight and TCP connection gauges, and the cache hit rate. `SIGUSR1` prints
+one on demand, whatever `STATS_INTERVAL_SEC` is set to:
+
+```
+[stats] served=1042 failed=3 rejected=0 dropped=0 inflight=2 tcp_conns=1 cache_hits=780 hit_rate=74%
+```
 
 `LISTEN_ADDR` defaults to every interface because the reference deployment is a
 container with its own network namespace. On a host, set it.

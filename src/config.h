@@ -30,6 +30,10 @@ struct Config {
     // IPv4 clients, which arrive as ::ffff:a.b.c.d.
     bool ipv6_v6only = false;
 
+    // Seconds between stats log lines. 0 turns the periodic line off; a
+    // SIGUSR1 dump still works.
+    int stats_interval_sec = 300;
+
     bool tcp_enabled  = true;
     int  tcp_max_conns = 128;
     int  tcp_idle_sec  = 10;
