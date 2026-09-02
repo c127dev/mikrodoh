@@ -30,6 +30,11 @@ struct Config {
     // IPv4 clients, which arrive as ::ffff:a.b.c.d.
     bool ipv6_v6only = false;
 
+    // Empty leaves the process as it started. Set it when the daemon binds a
+    // privileged port as root: the switch happens once the sockets are up.
+    std::string run_as_user;
+    std::string run_as_group;
+
     // Seconds between stats log lines. 0 turns the periodic line off; a
     // SIGUSR1 dump still works.
     int stats_interval_sec = 300;

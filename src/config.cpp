@@ -83,6 +83,9 @@ Config Config::from_env() {
     c.connect_timeout_ms = env_int("CONNECT_TIMEOUT_MS", c.connect_timeout_ms);
     c.request_timeout_ms = env_int("REQUEST_TIMEOUT_MS", c.request_timeout_ms);
 
+    c.run_as_user  = env_str("RUN_AS_USER", c.run_as_user);
+    c.run_as_group = env_str("RUN_AS_GROUP", c.run_as_group);
+
     c.stats_interval_sec = env_int("STATS_INTERVAL_SEC", c.stats_interval_sec);
     if (c.stats_interval_sec < 0) c.stats_interval_sec = 0;
 
@@ -132,6 +135,12 @@ void Config::print(std::ostream& os) const {
        << "Cache TTL     : " << cache_ttl << "s\n"
        << "TCP           : " << (tcp_enabled ? "on" : "off") << ", max "
        << tcp_max_conns << " conns, " << tcp_idle_sec << "s idle\n"
+       << "Run as        : "
+       << (run_as_user.empty() ? std::string("unchanged")
+                               : run_as_user + (run_as_group.empty()
+                                                    ? ""
+                                                    : ":" + run_as_group))
+       << "\n"
        << "Stats line    : "
        << (stats_interval_sec > 0 ? std::to_string(stats_interval_sec) + "s"
                                   : std::string("off, SIGUSR1 only"))

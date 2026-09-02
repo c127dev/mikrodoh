@@ -97,6 +97,14 @@ supported device, in `--env-file` format.
 | `TCP_IDLE_SEC` | `10` | Close a TCP connection after this long with no query |
 | `CACHE` | `0` | Response TTL in seconds, `0` disables the cache |
 | `STATS_INTERVAL_SEC` | `300` | Seconds between stats lines, `0` disables them |
+| `RUN_AS_USER` | unset | User (name or uid) to switch to once the sockets are bound |
+| `RUN_AS_GROUP` | user's primary group | Group (name or gid) to switch to |
+
+`RUN_AS_USER` only applies when the process starts as root, which is what
+binding port 53 without `CAP_NET_BIND_SERVICE` needs. The switch happens after
+both listeners are bound and before any worker thread starts, and startup
+aborts if it fails. Under the reference container the daemon already starts
+unprivileged on a high port, so leave it unset there.
 
 A stats line reports served, failed, rejected and dropped counts, the
 in-flight and TCP connection gauges, and the cache hit rate. `SIGUSR1` prints
