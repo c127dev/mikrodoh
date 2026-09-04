@@ -133,3 +133,70 @@ TEST(make_error_returns_nothing_without_a_header) {
     std::vector<std::uint8_t> q{0x00, 0x01, 0x02};
     CHECK(dns::make_error(q.data(), q.size(), dns::kRcodeServFail).empty());
 }
+
+namespace {
+
+// The query turned into the answer the resolver would send back: QR and RA set,
+// one answer record appended.
+std::vector<std::uint8_t> answer_to(std::vector<std::uint8_t> q) {
+    q[2] = static_cast<std::uint8_t>(q[2] | 0x80);
+    q[3] = static_cast<std::uint8_t>(q[3] | 0x80);
+    q[7] = 1;  // ANCOUNT
+    q.insert(q.end(), {0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 93, 184, 216, 34});
+    return q;
+}
+
+}  // namespace
+
+TEST(response_matches_accepts_the_answer_to_the_query) {
+    std::vector<std::uint8_t> q = query("example.com", 0xBEEF);
+    std::vector<std::uint8_t> r = answer_to(q);
+    CHECK(dns::response_matches(q.data(), q.size(), r.data(), r.size()));
+}
+
+TEST(response_matches_ignores_the_case_of_the_echoed_name) {
+    std::vector<std::uint8_t> q = query("example.com");
+    std::vector<std::uint8_t> r = answer_to(q);
+    r[13] = 'E';  // first byte of the "example" label
+    CHECK(dns::response_matches(q.data(), q.size(), r.data(), r.size()));
+}
+
+TEST(response_matches_rejects_a_different_transaction_id) {
+    std::vector<std::uint8_t> q = query("example.com", 0xBEEF);
+    std::vector<std::uint8_t> r = answer_to(query("example.com", 0xBEF0));
+    CHECK(!dns::response_matches(q.data(), q.size(), r.data(), r.size()));
+}
+
+TEST(response_matches_rejects_a_different_question) {
+    std::vector<std::uint8_t> q = query("example.com");
+    std::vector<std::uint8_t> r = answer_to(query("example.org"));
+    CHECK(!dns::response_matches(q.data(), q.size(), r.data(), r.size()));
+}
+
+TEST(response_matches_rejects_a_different_qtype) {
+    std::vector<std::uint8_t> q = query("example.com");
+    std::vector<std::uint8_t> r = answer_to(q);
+    r[q.size() - 3] = 28;  // QTYPE AAAA
+    CHECK(!dns::response_matches(q.data(), q.size(), r.data(), r.size()));
+}
+
+TEST(response_matches_rejects_a_message_with_qr_clear) {
+    std::vector<std::uint8_t> q = query("example.com");
+    std::vector<std::uint8_t> r = answer_to(q);
+    r[2] = static_cast<std::uint8_t>(r[2] & 0x7F);
+    CHECK(!dns::response_matches(q.data(), q.size(), r.data(), r.size()));
+}
+
+TEST(response_matches_rejects_a_header_only_body) {
+    std::vector<std::uint8_t> q = query("example.com");
+    std::vector<std::uint8_t> r = answer_to(q);
+    r.resize(dns::kHeaderLen);
+    CHECK(!dns::response_matches(q.data(), q.size(), r.data(), r.size()));
+}
+
+TEST(response_matches_rejects_a_truncated_question) {
+    std::vector<std::uint8_t> q = query("example.com");
+    std::vector<std::uint8_t> r = answer_to(q);
+    r.resize(q.size() - 1);
+    CHECK(!dns::response_matches(q.data(), q.size(), r.data(), r.size()));
+}
