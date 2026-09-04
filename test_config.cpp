@@ -13,7 +13,7 @@ const char* kKeys[] = {"LISTEN_ADDR",   "LISTEN_PORT",        "PORT",
                        "TCP_KEEP_ALIVE", "CACHE",             "RCVBUF_KB",
                        "MAX_INFLIGHT",  "CIPHER",             "CONNECT_TIMEOUT_MS",
                        "REQUEST_TIMEOUT_MS", "TCP",           "TCP_MAX_CONNS",
-                       "TCP_IDLE_SEC"};
+                       "TCP_IDLE_SEC", "RESOLVER_COOLDOWN_MS"};
 
 // DOH_FAILOVER_URL_1.. are read until the first gap, so clear a few extra.
 const int kMaxFailoverKeys = 4;
@@ -44,6 +44,7 @@ TEST(defaults_apply_when_nothing_is_set) {
     CHECK(c.tcp_idle_sec == 10);
     CHECK(c.connect_timeout_ms == 3000);
     CHECK(c.request_timeout_ms == 5000);
+    CHECK(c.resolver_cooldown_ms == 30000);
 }
 
 TEST(workers_defaults_to_at_least_one) {
@@ -154,4 +155,13 @@ TEST(the_failover_list_stops_at_the_first_gap) {
 
     Config c = Config::from_env();
     CHECK(c.doh_urls.size() == 1);
+}
+
+TEST(a_negative_resolver_cooldown_turns_the_tracking_off) {
+    clear_env();
+    set("RESOLVER_COOLDOWN_MS", "-1");
+    CHECK(Config::from_env().resolver_cooldown_ms == 0);
+
+    set("RESOLVER_COOLDOWN_MS", "5000");
+    CHECK(Config::from_env().resolver_cooldown_ms == 5000);
 }
