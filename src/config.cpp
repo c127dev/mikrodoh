@@ -83,6 +83,9 @@ Config Config::from_env() {
     c.connect_timeout_ms = env_int("CONNECT_TIMEOUT_MS", c.connect_timeout_ms);
     c.request_timeout_ms = env_int("REQUEST_TIMEOUT_MS", c.request_timeout_ms);
 
+    c.resolver_cooldown_ms = env_int("RESOLVER_COOLDOWN_MS", c.resolver_cooldown_ms);
+    if (c.resolver_cooldown_ms < 0) c.resolver_cooldown_ms = 0;
+
     c.run_as_user  = env_str("RUN_AS_USER", c.run_as_user);
     c.run_as_group = env_str("RUN_AS_GROUP", c.run_as_group);
 
@@ -130,6 +133,10 @@ void Config::print(std::ostream& os) const {
        << "Max in-flight : " << max_inflight << "\n"
        << "Timeouts      : " << connect_timeout_ms << "ms connect, "
        << request_timeout_ms << "ms request\n"
+       << "Cooldown      : "
+       << (resolver_cooldown_ms > 0 ? std::to_string(resolver_cooldown_ms) + "ms"
+                                    : std::string("off"))
+       << "\n"
        << "Check cert    : " << (check_cert ? "true" : "false") << "\n"
        << "TCP keep-alive: " << tcp_keep_alive << "s\n"
        << "Cache TTL     : " << cache_ttl << "s\n"

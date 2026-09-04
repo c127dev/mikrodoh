@@ -22,7 +22,7 @@ constexpr std::size_t kMaxIdleHandles = 64;
 }  // namespace
 
 DohWorker::DohWorker(const Config& cfg, DnsCache& cache, Stats& stats)
-    : cfg_(cfg), cache_(cache), stats_(stats) {
+    : cfg_(cfg), cache_(cache), stats_(stats), health_(cfg.doh_urls.size()) {
     multi_ = curl_multi_init();
     curl_multi_setopt(multi_, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
     curl_multi_setopt(multi_, CURLMOPT_MAX_CONCURRENT_STREAMS, 1000L);
@@ -101,11 +101,48 @@ void DohWorker::release(CURL* handle) {
     curl_easy_cleanup(handle);
 }
 
+std::size_t DohWorker::pick_url(std::size_t from) const {
+    std::size_t n = cfg_.doh_urls.size();
+    auto        now = std::chrono::steady_clock::now();
+
+    for (std::size_t i = from; i < n; i++)
+        if (health_[i].down_until <= now) return i;
+
+    // Everything left is in cooldown. Send the query to the next one anyway
+    // rather than fail it outright: that request is also the probe that ends
+    // the cooldown.
+    return from;
+}
+
+void DohWorker::mark_down(std::size_t url) {
+    if (cfg_.resolver_cooldown_ms <= 0) return;
+
+    Resolver& r = health_[url];
+    if (r.fails < 4) r.fails++;  // the backoff caps at 16x the base cooldown
+
+    auto cooldown = std::chrono::milliseconds(
+        static_cast<long long>(cfg_.resolver_cooldown_ms) << (r.fails - 1));
+    r.down_until = std::chrono::steady_clock::now() + cooldown;
+
+    std::cerr << "resolver " << cfg_.doh_urls[url] << " marked down for "
+              << cooldown.count() << "ms\n";
+}
+
+void DohWorker::mark_up(std::size_t url) {
+    Resolver& r = health_[url];
+    if (r.fails == 0) return;
+
+    r.fails      = 0;
+    r.down_until = {};
+    std::cerr << "resolver " << cfg_.doh_urls[url] << " is answering again\n";
+}
+
 void DohWorker::start(Transfer* t) {
-    if (t->attempt >= cfg_.doh_urls.size()) {
+    if (t->url >= cfg_.doh_urls.size()) {
         finish(t, false);
         return;
     }
+    t->url = pick_url(t->url);
 
     CURL* handle = acquire();
     if (!handle) {
@@ -114,7 +151,7 @@ void DohWorker::start(Transfer* t) {
     }
 
     t->response.clear();
-    curl_easy_setopt(handle, CURLOPT_URL, cfg_.doh_urls[t->attempt].c_str());
+    curl_easy_setopt(handle, CURLOPT_URL, cfg_.doh_urls[t->url].c_str());
     curl_easy_setopt(handle, CURLOPT_POSTFIELDS, t->payload.data());
     curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(t->payload.size()));
     curl_easy_setopt(handle, CURLOPT_WRITEDATA, &t->response);
@@ -164,7 +201,7 @@ void DohWorker::reap() {
                                         t->response.data(), t->response.size());
 
         if (!ok)
-            std::cerr << "DoH transfer failed on " << cfg_.doh_urls[t->attempt]
+            std::cerr << "DoH transfer failed on " << cfg_.doh_urls[t->url]
                       << ": "
                       << (transferred ? "answer does not match the query"
                                       : curl_easy_strerror(msg->data.result))
@@ -173,8 +210,10 @@ void DohWorker::reap() {
         curl_multi_remove_handle(multi_, handle);
         release(handle);
 
-        if (!ok && t->attempt + 1 < cfg_.doh_urls.size()) {
-            t->attempt++;
+        ok ? mark_up(t->url) : mark_down(t->url);
+
+        if (!ok && t->url + 1 < cfg_.doh_urls.size()) {
+            t->url++;
             start(t);
             continue;
         }

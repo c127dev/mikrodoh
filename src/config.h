@@ -23,6 +23,10 @@ struct Config {
     int         rcvbuf_kb          = 4096;
     int         connect_timeout_ms = 3000;
     int         request_timeout_ms = 5000;
+    // How long a resolver is skipped after it fails. Doubles per consecutive
+    // failure up to 16x, and is cleared by the next success. 0 disables the
+    // memory, so every query pays a dead resolver's timeout again.
+    int         resolver_cooldown_ms = 30000;
     CipherPref  cipher             = CipherPref::Auto;
     IpVersion   ip_version         = IpVersion::Any;
 

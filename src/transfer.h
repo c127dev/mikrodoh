@@ -20,9 +20,9 @@ struct Transfer {
     std::vector<std::uint8_t> response;
     std::string               cache_key;
 
-    // Index into Config::doh_urls. Bumped on each upstream failure until the
-    // list runs out.
-    std::size_t attempt = 0;
+    // Index into Config::doh_urls: the resolver this attempt uses. Bumped past
+    // each failure, and past any resolver in cooldown, until the list runs out.
+    std::size_t url = 0;
 
     int                      udp_fd = -1;
     sockaddr_storage         client_addr{};

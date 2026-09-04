@@ -91,6 +91,7 @@ supported device, in `--env-file` format.
 | `CHECK_CERT` | `true` | Verify the resolver's certificate |
 | `CONNECT_TIMEOUT_MS` | `3000` | Upstream connect timeout |
 | `REQUEST_TIMEOUT_MS` | `5000` | Upstream request timeout |
+| `RESOLVER_COOLDOWN_MS` | `30000` | How long a failed resolver is skipped, `0` disables the health tracking |
 | `TCP_KEEP_ALIVE` | `0` | Keep-alive interval on the upstream connection, `0` disables |
 | `TCP` | `true` | Serve DNS over TCP as well as UDP |
 | `TCP_MAX_CONNS` | `128` | Accepted TCP connections; further ones are closed at once |
@@ -132,13 +133,19 @@ DOH_FAILOVER_URL_1=https://9.9.9.9/dns-query
 DOH_FAILOVER_URL_2=https://8.8.8.8/dns-query
 ```
 
-A query that fails upstream - connect error, timeout, non-200, or a body too
-short to be a DNS message - is retried against the next resolver in the list.
-Only once the list is exhausted does the client get SERVFAIL. Failover is per
-query and stateless: there is no health tracking, so every query pays the
-primary's failure again. The worst-case latency is therefore the sum of the
-timeouts of all configured resolvers, which is worth keeping in mind when
-setting `REQUEST_TIMEOUT_MS` alongside a long list.
+A query that fails upstream - connect error, timeout, non-200, or an answer
+that does not match the question - is retried against the next resolver in the
+list. Only once the list is exhausted does the client get SERVFAIL.
+
+A resolver that fails is then skipped for `RESOLVER_COOLDOWN_MS`, so the queries
+behind the first one do not pay its timeout again. The cooldown doubles on each
+consecutive failure, up to 16 times the configured value, and is cleared by the
+next answer. The query that lands when a cooldown expires is the probe: if it
+succeeds the resolver is back in rotation at once.
+
+Health is tracked per event loop, not globally, so an outage costs one timeout
+per worker per cooldown. With every resolver in cooldown the query still goes
+out to the next one in the list rather than failing without a request.
 
 ### Boards
 
