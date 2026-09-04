@@ -155,12 +155,19 @@ void DohWorker::reap() {
         long http_code = 0;
         curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &http_code);
 
-        bool ok = msg->data.result == CURLE_OK && http_code == 200 &&
-                  t->response.size() >= dns::kHeaderLen;
+        bool transferred = msg->data.result == CURLE_OK && http_code == 200;
+
+        // An answer that does not match the question is not an answer: without
+        // this the body is relayed to the client whatever it holds.
+        bool ok = transferred &&
+                  dns::response_matches(t->payload.data(), t->payload.size(),
+                                        t->response.data(), t->response.size());
 
         if (!ok)
             std::cerr << "DoH transfer failed on " << cfg_.doh_urls[t->attempt]
-                      << ": " << curl_easy_strerror(msg->data.result)
+                      << ": "
+                      << (transferred ? "answer does not match the query"
+                                      : curl_easy_strerror(msg->data.result))
                       << " (HTTP " << http_code << ")\n";
 
         curl_multi_remove_handle(multi_, handle);

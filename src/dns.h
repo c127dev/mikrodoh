@@ -17,6 +17,12 @@ std::size_t question_end(const std::uint8_t* msg, std::size_t len);
 // QUERY, QDCOUNT 1 and a well-formed question.
 bool query_valid(const std::uint8_t* msg, std::size_t len);
 
+// True when `resp` is a response to `query`: QR set, the same transaction ID
+// and opcode, QDCOUNT 1 and the same question. The name is compared without
+// regard to case, so a resolver that echoes 0x20-encoded labels still matches.
+bool response_matches(const std::uint8_t* query, std::size_t qlen,
+                      const std::uint8_t* resp, std::size_t rlen);
+
 // A response to `query` carrying `rcode`, with the question echoed back and no
 // records. Empty when the query has no usable header.
 std::vector<std::uint8_t> make_error(const std::uint8_t* query, std::size_t len,
