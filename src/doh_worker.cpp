@@ -4,6 +4,7 @@
 #include "dns.h"
 
 #include <iostream>
+#include <string>
 
 namespace {
 
@@ -18,6 +19,9 @@ size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
 // An idle handle keeps its connection warm, but one per completed transfer
 // would grow the pool to MAX_INFLIGHT and hold that many sockets open.
 constexpr std::size_t kMaxIdleHandles = 64;
+
+// How long shutdown waits for in-flight transfers before failing them.
+constexpr int kDrainTimeoutMs = 2000;
 
 }  // namespace
 
@@ -157,6 +161,7 @@ void DohWorker::start(Transfer* t) {
     curl_easy_setopt(handle, CURLOPT_WRITEDATA, &t->response);
     curl_easy_setopt(handle, CURLOPT_PRIVATE, t);
     curl_multi_add_handle(multi_, handle);
+    active_.insert(handle);
 }
 
 void DohWorker::finish(Transfer* t, bool ok) {
@@ -208,11 +213,12 @@ void DohWorker::reap() {
                       << " (HTTP " << http_code << ")\n";
 
         curl_multi_remove_handle(multi_, handle);
+        active_.erase(handle);
         release(handle);
 
         ok ? mark_up(t->url) : mark_down(t->url);
 
-        if (!ok && t->url + 1 < cfg_.doh_urls.size()) {
+        if (!ok && !draining_ && t->url + 1 < cfg_.doh_urls.size()) {
             t->url++;
             start(t);
             continue;
@@ -228,6 +234,51 @@ void DohWorker::submit(Transfer* t) {
         inbox_.push_back(t);
     }
     curl_multi_wakeup(multi_);
+}
+
+void DohWorker::drain() {
+    draining_ = true;
+
+    // Whatever was submitted but never started has no request in flight to wait
+    // for, so it is answered outright.
+    std::vector<Transfer*> queued;
+    {
+        std::lock_guard<std::mutex> lock(inbox_mutex_);
+        queued.swap(inbox_);
+    }
+    for (Transfer* t : queued) finish(t, false);
+
+    // Give the transfers already on the wire a bounded window to land. Their
+    // own REQUEST_TIMEOUT_MS may be longer than an operator will wait for the
+    // process to exit.
+    auto deadline = std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds(kDrainTimeoutMs);
+
+    int still_running = 0;
+    do {
+        curl_multi_perform(multi_, &still_running);
+        reap();
+        if (active_.empty()) break;
+        curl_multi_poll(multi_, nullptr, 0, 50, nullptr);
+    } while (std::chrono::steady_clock::now() < deadline);
+
+    // One write: every worker drains at once and a streamed line interleaves.
+    if (!active_.empty())
+        std::cerr << "shutdown: failing " + std::to_string(active_.size()) +
+                         " transfer(s) still in flight\n";
+
+    // Answering these is the only way their clients hear anything, and removing
+    // the handle is the only way the Transfer behind it is freed.
+    for (CURL* handle : active_) {
+        Transfer* t = nullptr;
+        curl_easy_getinfo(handle, CURLINFO_PRIVATE, &t);
+
+        curl_multi_remove_handle(multi_, handle);
+        curl_easy_cleanup(handle);
+
+        if (t) finish(t, false);
+    }
+    active_.clear();
 }
 
 void DohWorker::run(const std::atomic<bool>& stop) {
@@ -248,6 +299,5 @@ void DohWorker::run(const std::atomic<bool>& stop) {
         curl_multi_poll(multi_, nullptr, 0, 200, nullptr);
     }
 
-    curl_multi_perform(multi_, &still_running);
-    reap();
+    drain();
 }

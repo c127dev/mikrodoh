@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstddef>
 #include <mutex>
+#include <unordered_set>
 #include <vector>
 
 #include <curl/curl.h>
@@ -36,6 +37,7 @@ private:
     void        release(CURL* handle);
     void        start(Transfer* t);
     void        reap();
+    void        drain();
     void        finish(Transfer* t, bool ok);
     std::size_t pick_url(std::size_t from) const;
     void        mark_down(std::size_t url);
@@ -60,4 +62,12 @@ private:
     std::mutex             inbox_mutex_;
     std::vector<Transfer*> inbox_;
     std::vector<CURL*>     idle_;
+
+    // The handles currently in multi_. curl cannot be asked what it is still
+    // carrying, and shutdown has to answer and free every one of them.
+    std::unordered_set<CURL*> active_;
+
+    // Set once the loop has left: a failed transfer is answered rather than
+    // retried against the next resolver.
+    bool draining_ = false;
 };
