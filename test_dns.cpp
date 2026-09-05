@@ -200,3 +200,170 @@ TEST(response_matches_rejects_a_truncated_question) {
     r.resize(q.size() - 1);
     CHECK(!dns::response_matches(q.data(), q.size(), r.data(), r.size()));
 }
+
+namespace {
+
+// The query with an OPT record appended, as a resolver client sends it.
+std::vector<std::uint8_t> with_opt(std::vector<std::uint8_t> q, std::uint16_t payload,
+                                   std::uint16_t rdlen = 0) {
+    q[11] = 1;  // ARCOUNT
+    q.insert(q.end(), {0,                                        // root name
+                       0, 41,                                    // TYPE OPT
+                       static_cast<std::uint8_t>(payload >> 8),  // CLASS: payload size
+                       static_cast<std::uint8_t>(payload & 0xFF),
+                       0, 0, 0, 0,                               // TTL
+                       static_cast<std::uint8_t>(rdlen >> 8),
+                       static_cast<std::uint8_t>(rdlen & 0xFF)});
+    q.insert(q.end(), rdlen, 0);  // an option this proxy does not read
+    return q;
+}
+
+// An answer to `q` padded past `len` bytes, which is what forces truncation.
+std::vector<std::uint8_t> big_answer_to(const std::vector<std::uint8_t>& q,
+                                        std::size_t len) {
+    std::vector<std::uint8_t> r = answer_to(q);
+    r.resize(len, 0xAA);
+    return r;
+}
+
+}  // namespace
+
+TEST(udp_limit_is_512_without_an_opt_record) {
+    std::vector<std::uint8_t> q = query("example.com");
+    dns::UdpLimit             l = dns::udp_limit(q.data(), q.size());
+
+    CHECK(l.bytes == dns::kMinUdpPayload);
+    CHECK(!l.edns);
+}
+
+TEST(udp_limit_reads_the_advertised_payload_size) {
+    std::vector<std::uint8_t> q = with_opt(query("example.com"), 1232);
+    dns::UdpLimit             l = dns::udp_limit(q.data(), q.size());
+
+    CHECK(l.bytes == 1232);
+    CHECK(l.edns);
+}
+
+TEST(udp_limit_clamps_an_advertised_size_below_512) {
+    std::vector<std::uint8_t> q = with_opt(query("example.com"), 300);
+    dns::UdpLimit             l = dns::udp_limit(q.data(), q.size());
+
+    CHECK(l.bytes == dns::kMinUdpPayload);
+    CHECK(l.edns);
+}
+
+TEST(udp_limit_skips_a_record_before_the_opt) {
+    // An OPT that is not the first record in the additional section: the walk
+    // has to step over the one in front of it by its RDLENGTH.
+    std::vector<std::uint8_t> q = query("example.com");
+    q.insert(q.end(), {0, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 10, 0, 0, 1});  // an A record
+    q = with_opt(std::move(q), 4096);
+    q[11] = 2;  // ARCOUNT, both records
+
+    dns::UdpLimit l = dns::udp_limit(q.data(), q.size());
+    CHECK(l.bytes == 4096);
+    CHECK(l.edns);
+}
+
+TEST(udp_limit_reads_an_opt_carrying_options) {
+    // A DNS cookie or padding sits in the OPT's RDATA; the size is still in the
+    // CLASS field in front of it.
+    std::vector<std::uint8_t> q = with_opt(query("example.com"), 1232, 12);
+    dns::UdpLimit             l = dns::udp_limit(q.data(), q.size());
+
+    CHECK(l.bytes == 1232);
+    CHECK(l.edns);
+}
+
+TEST(udp_limit_falls_back_on_a_record_running_off_the_end) {
+    std::vector<std::uint8_t> q = with_opt(query("example.com"), 1232);
+    q.resize(q.size() - 4);  // the OPT is cut short
+
+    dns::UdpLimit l = dns::udp_limit(q.data(), q.size());
+    CHECK(l.bytes == dns::kMinUdpPayload);
+    CHECK(!l.edns);
+}
+
+TEST(udp_limit_falls_back_on_a_malformed_question) {
+    std::vector<std::uint8_t> q{0x00, 0x01, 0x02};
+    dns::UdpLimit             l = dns::udp_limit(q.data(), q.size());
+
+    CHECK(l.bytes == dns::kMinUdpPayload);
+    CHECK(!l.edns);
+}
+
+TEST(truncate_cuts_to_the_question_and_sets_tc) {
+    std::vector<std::uint8_t> q = query("example.com", 0xBEEF);
+    std::vector<std::uint8_t> r = big_answer_to(q, 2000);
+
+    dns::UdpLimit             l = dns::udp_limit(q.data(), q.size());
+    std::vector<std::uint8_t> t = dns::truncate(r.data(), r.size(), l);
+
+    CHECK(t.size() == q.size());                // header and question only
+    CHECK(t.size() <= l.bytes);
+    CHECK(t[0] == 0xBE && t[1] == 0xEF);        // transaction ID preserved
+    CHECK((t[2] & 0x02) != 0);                  // TC set
+    CHECK((t[2] & 0x80) != 0);                  // still a response
+    CHECK(t[4] == 0 && t[5] == 1);              // QDCOUNT 1
+    CHECK(std::memcmp(t.data() + 6, "\0\0\0\0\0\0", 6) == 0);  // no records
+    CHECK(std::memcmp(t.data() + 12, q.data() + 12, q.size() - 12) == 0);
+}
+
+TEST(truncate_answers_the_query_it_was_cut_from) {
+    // A stub that validates the reply has to accept it, or the TC never gets
+    // read and the retry never happens.
+    std::vector<std::uint8_t> q = with_opt(query("example.com", 0xBEEF), 1232);
+    std::vector<std::uint8_t> r = big_answer_to(q, 2000);
+
+    dns::UdpLimit             l = dns::udp_limit(q.data(), q.size());
+    std::vector<std::uint8_t> t = dns::truncate(r.data(), r.size(), l);
+
+    CHECK(dns::response_matches(q.data(), q.size(), t.data(), t.size()));
+}
+
+TEST(truncate_puts_an_opt_record_back_for_an_edns_query) {
+    std::vector<std::uint8_t> q = with_opt(query("example.com"), 1232);
+    std::vector<std::uint8_t> r = big_answer_to(q, 2000);
+
+    dns::UdpLimit             l = dns::udp_limit(q.data(), q.size());
+    std::vector<std::uint8_t> t = dns::truncate(r.data(), r.size(), l);
+
+    CHECK(t[10] == 0 && t[11] == 1);  // ARCOUNT 1
+
+    std::size_t opt = dns::question_end(t.data(), t.size());
+    CHECK(opt != 0);
+    CHECK(t.size() == opt + 11);      // root name plus the fixed part
+    CHECK(t[opt] == 0);               // root name
+    CHECK(t[opt + 1] == 0 && t[opt + 2] == 41);           // TYPE OPT
+    CHECK(t[opt + 3] == 0x04 && t[opt + 4] == 0xD0);      // CLASS: 1232
+    CHECK(std::memcmp(t.data() + opt + 5, "\0\0\0\0\0\0", 6) == 0);  // TTL, RDLENGTH
+}
+
+TEST(truncate_omits_the_opt_record_for_a_bare_query) {
+    std::vector<std::uint8_t> q = query("example.com");
+    std::vector<std::uint8_t> r = big_answer_to(q, 2000);
+
+    dns::UdpLimit             l = dns::udp_limit(q.data(), q.size());
+    std::vector<std::uint8_t> t = dns::truncate(r.data(), r.size(), l);
+
+    CHECK(t.size() == q.size());
+    CHECK(t[10] == 0 && t[11] == 0);  // ARCOUNT stays 0
+}
+
+TEST(truncate_zeroes_qdcount_on_a_malformed_question) {
+    std::vector<std::uint8_t> r = answer_to(query("example.com"));
+    r.resize(20);  // the name runs off the end
+
+    dns::UdpLimit             l;
+    std::vector<std::uint8_t> t = dns::truncate(r.data(), r.size(), l);
+
+    CHECK(t.size() == dns::kHeaderLen);
+    CHECK((t[2] & 0x02) != 0);      // TC still set
+    CHECK(t[4] == 0 && t[5] == 0);  // QDCOUNT zeroed to match
+}
+
+TEST(truncate_returns_nothing_without_a_header) {
+    std::vector<std::uint8_t> r{0x00, 0x01, 0x02};
+    dns::UdpLimit             l;
+    CHECK(dns::truncate(r.data(), r.size(), l).empty());
+}
