@@ -2,6 +2,8 @@
 
 #include "config.h"
 
+#include <sstream>
+
 #include <cstdlib>
 #include <string>
 
@@ -13,7 +15,8 @@ const char* kKeys[] = {"LISTEN_ADDR",   "LISTEN_PORT",        "PORT",
                        "TCP_KEEP_ALIVE", "CACHE",             "RCVBUF_KB",
                        "MAX_INFLIGHT",  "CIPHER",             "CONNECT_TIMEOUT_MS",
                        "REQUEST_TIMEOUT_MS", "TCP",           "TCP_MAX_CONNS",
-                       "TCP_IDLE_SEC", "RESOLVER_COOLDOWN_MS"};
+                       "TCP_IDLE_SEC", "RESOLVER_COOLDOWN_MS",
+                       "DOH_BOOTSTRAP"};
 
 // DOH_FAILOVER_URL_1.. are read until the first gap, so clear a few extra.
 const int kMaxFailoverKeys = 4;
@@ -164,4 +167,76 @@ TEST(a_negative_resolver_cooldown_turns_the_tracking_off) {
 
     set("RESOLVER_COOLDOWN_MS", "5000");
     CHECK(Config::from_env().resolver_cooldown_ms == 5000);
+}
+
+TEST(no_bootstrap_is_needed_for_an_ip_literal_resolver) {
+    clear_env();
+    std::ostringstream err;
+
+    Config c = Config::from_env();
+    CHECK(c.resolve_entries.empty());
+    CHECK(c.resolvers_reachable(err));
+}
+
+TEST(a_hostname_resolver_without_a_bootstrap_address_is_refused) {
+    clear_env();
+    set("DOH_URL", "https://dns.example/dns-query");
+    std::ostringstream err;
+
+    CHECK(!Config::from_env().resolvers_reachable(err));
+    CHECK(err.str().find("dns.example") != std::string::npos);
+}
+
+TEST(a_bootstrap_address_makes_a_hostname_resolver_reachable) {
+    clear_env();
+    set("DOH_URL", "https://dns.example/dns-query");
+    set("DOH_BOOTSTRAP", "dns.example=9.9.9.9");
+    std::ostringstream err;
+
+    Config c = Config::from_env();
+    CHECK(c.resolve_entries.size() == 1);
+    CHECK(c.resolve_entries[0] == "dns.example:443:9.9.9.9");
+    CHECK(c.resolvers_reachable(err));
+}
+
+TEST(repeating_a_bootstrap_host_gives_it_several_addresses) {
+    clear_env();
+    set("DOH_URL", "https://dns.example:8443/dns-query");
+    set("DOH_BOOTSTRAP", "dns.example=9.9.9.9, dns.example=1.1.1.1");
+
+    Config c = Config::from_env();
+    CHECK(c.resolve_entries.size() == 1);
+    CHECK(c.resolve_entries[0] == "dns.example:8443:9.9.9.9,1.1.1.1");
+}
+
+TEST(a_bootstrap_entry_for_an_unused_host_is_ignored) {
+    clear_env();
+    set("DOH_BOOTSTRAP", "other.example=9.9.9.9");
+    CHECK(Config::from_env().resolve_entries.empty());
+}
+
+TEST(every_failover_resolver_needs_its_own_bootstrap_address) {
+    clear_env();
+    set("DOH_FAILOVER_URL_1", "https://a.example/dns-query");
+    set("DOH_FAILOVER_URL_2", "https://b.example/dns-query");
+    set("DOH_BOOTSTRAP", "a.example=9.9.9.9");
+    std::ostringstream err;
+
+    Config c = Config::from_env();
+    CHECK(c.resolve_entries.size() == 1);
+    CHECK(!c.resolvers_reachable(err));
+    CHECK(err.str().find("b.example") != std::string::npos);
+
+    set("DOH_BOOTSTRAP", "a.example=9.9.9.9,b.example=8.8.8.8");
+    CHECK(Config::from_env().resolvers_reachable(err));
+}
+
+TEST(malformed_bootstrap_items_are_skipped) {
+    clear_env();
+    set("DOH_URL", "https://dns.example/dns-query");
+    set("DOH_BOOTSTRAP", "garbage,=9.9.9.9,dns.example=,,dns.example=9.9.9.9");
+
+    Config c = Config::from_env();
+    CHECK(c.resolve_entries.size() == 1);
+    CHECK(c.resolve_entries[0] == "dns.example:443:9.9.9.9");
 }

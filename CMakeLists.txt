@@ -21,6 +21,7 @@ add_executable(mikrodoh_tests
     test_cache.cpp
     test_config.cpp
     test_dns.cpp
+    test_net.cpp
     test_tcp_conn.cpp
 
     "${MIKRODOH_SRC}/src/cache.cpp"
