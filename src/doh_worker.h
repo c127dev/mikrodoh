@@ -49,6 +49,9 @@ private:
 
     CURLM*             multi_   = nullptr;
     struct curl_slist* headers_ = nullptr;
+    // Config::resolve_entries as a curl list, empty when every resolver is an
+    // IP literal.
+    struct curl_slist* resolve_ = nullptr;
 
     // What this loop has learnt about each entry of Config::doh_urls. It is
     // per-worker and needs no locking: a dead resolver is found again by every

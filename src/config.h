@@ -15,6 +15,10 @@ struct Config {
     // First entry is DOH_URL, the rest are the DOH_FAILOVER_URL_n in order. A
     // query walks the list until one resolver answers.
     std::vector<std::string> doh_urls = {"https://1.1.1.1/dns-query"};
+    // DOH_BOOTSTRAP, in curl's CURLOPT_RESOLVE form: "host:port:addr,addr".
+    // A resolver named by hostname is unreachable without one when this daemon
+    // is the box's resolver, because getaddrinfo would come back to itself.
+    std::vector<std::string> resolve_entries;
     int         workers            = 0;
     bool        check_cert         = true;
     int         tcp_keep_alive     = 0;
@@ -52,4 +56,9 @@ struct Config {
 
     static Config from_env();
     void print(std::ostream& os) const;
+
+    // Every resolver has to be reachable without asking a resolver: an IP
+    // literal, or a hostname covered by DOH_BOOTSTRAP. False, with the reason
+    // on `err`, when one is not, and startup stops there.
+    bool resolvers_reachable(std::ostream& err) const;
 };

@@ -52,6 +52,13 @@ int main() {
 
     const Config cfg = Config::from_env();
 
+    // Before any socket: a resolver this daemon cannot reach without asking
+    // itself never answers, and the failure looks like a network outage.
+    if (!cfg.resolvers_reachable(std::cerr)) {
+        curl_global_cleanup();
+        return 1;
+    }
+
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
     signal(SIGPIPE, SIG_IGN);

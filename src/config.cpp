@@ -9,6 +9,8 @@
 #include <string>
 #include <ostream>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -36,6 +38,41 @@ bool env_bool(const char* name, bool fallback) {
     if (!v || !*v) return fallback;
     std::string s = lower(v);
     return s == "1" || s == "true" || s == "yes" || s == "on";
+}
+
+std::string trim(const std::string& s) {
+    std::size_t b = s.find_first_not_of(" \t");
+    if (b == std::string::npos) return "";
+    return s.substr(b, s.find_last_not_of(" \t") - b + 1);
+}
+
+// "dns.example=1.1.1.1,dns.example=1.0.0.1,other=2606:4700::1111" into
+// host -> the addresses given for it, in the order they appear.
+std::vector<std::pair<std::string, std::vector<std::string>>> parse_bootstrap(
+    const std::string& spec) {
+    std::vector<std::pair<std::string, std::vector<std::string>>> out;
+
+    for (std::size_t pos = 0; pos <= spec.size();) {
+        std::size_t comma = spec.find(',', pos);
+        std::string item  = trim(spec.substr(pos, comma - pos));
+        pos = comma == std::string::npos ? spec.size() + 1 : comma + 1;
+
+        std::size_t eq = item.find('=');
+        if (eq == std::string::npos) continue;
+
+        std::string host = trim(item.substr(0, eq));
+        std::string addr = trim(item.substr(eq + 1));
+        if (host.empty() || addr.empty()) continue;
+
+        auto it = out.begin();
+        for (; it != out.end(); ++it)
+            if (it->first == host) break;
+
+        if (it == out.end()) out.push_back({host, {addr}});
+        else it->second.push_back(addr);
+    }
+
+    return out;
 }
 
 const char* cipher_name(CipherPref p) {
@@ -67,6 +104,28 @@ Config Config::from_env() {
         std::string url = env_str(key.c_str(), "");
         if (url.empty()) break;  // the list ends at the first gap
         c.doh_urls.push_back(url);
+    }
+
+    // An entry is only useful for a host this daemon actually talks to, so the
+    // curl form is built per resolver URL: the port comes from the URL.
+    for (const auto& entry : parse_bootstrap(env_str("DOH_BOOTSTRAP", ""))) {
+        for (const std::string& url : c.doh_urls) {
+            std::string host;
+            int         port = 0;
+            if (!split_url_authority(url, host, port)) continue;
+            if (host != entry.first) continue;
+
+            std::string line = host + ":" + std::to_string(port) + ":";
+            for (std::size_t i = 0; i < entry.second.size(); i++)
+                line += (i ? "," : "") + entry.second[i];
+
+            // The same host can appear on two URLs with different ports, and
+            // each of those needs its own entry.
+            bool seen = false;
+            for (const std::string& have : c.resolve_entries)
+                seen = seen || have == line;
+            if (!seen) c.resolve_entries.push_back(line);
+        }
     }
 
     c.workers = env_int("WORKERS", 0);
@@ -120,6 +179,38 @@ Config Config::from_env() {
     return c;
 }
 
+bool Config::resolvers_reachable(std::ostream& err) const {
+    bool ok = true;
+
+    for (const std::string& url : doh_urls) {
+        std::string host;
+        int         port = 0;
+
+        if (!split_url_authority(url, host, port)) {
+            err << "DoH URL has no host: " << url << "\n";
+            ok = false;
+            continue;
+        }
+
+        if (is_ip_literal(host)) continue;
+
+        std::string prefix = host + ":" + std::to_string(port) + ":";
+        bool        bootstrapped = false;
+        for (const std::string& entry : resolve_entries)
+            bootstrapped = bootstrapped || entry.compare(0, prefix.size(), prefix) == 0;
+
+        if (bootstrapped) continue;
+
+        err << "resolver " << url << " is named by hostname and has no "
+            << "bootstrap address. Resolving it needs a resolver, which is "
+            << "this daemon. Use an IP literal, or set DOH_BOOTSTRAP="
+            << host << "=<address>.\n";
+        ok = false;
+    }
+
+    return ok;
+}
+
 void Config::print(std::ostream& os) const {
     os << "MikroDoH listening on " << join_host_port(listen_addr, listen_port)
        << " UDP" << (tcp_enabled ? "+TCP" : "") << "\n"
@@ -128,6 +219,9 @@ void Config::print(std::ostream& os) const {
 
     for (std::size_t i = 1; i < doh_urls.size(); i++)
         os << "Failover " << i << "    : " << doh_urls[i] << "\n";
+
+    for (const std::string& entry : resolve_entries)
+        os << "Bootstrap     : " << entry << "\n";
 
     os << "Event loops   : " << workers << "\n"
        << "Max in-flight : " << max_inflight << "\n"

@@ -84,6 +84,7 @@ supported device, in `--env-file` format.
 | `LISTEN_PORT` | `53` | Port to bind, UDP and TCP |
 | `DOH_URL` | `https://1.1.1.1/dns-query` | Upstream DoH resolver |
 | `DOH_FAILOVER_URL_n` | unset | Resolvers tried, in order, when the ones before them fail. `n` starts at 1 and the list stops at the first gap |
+| `DOH_BOOTSTRAP` | unset | Addresses for resolvers named by hostname, as `host=addr` pairs separated by commas. Repeat a host to give it several addresses |
 | `CIPHER` | `auto` | `auto`, `chacha` or `aes` |
 | `WORKERS` | CPU cores | Event-loop threads; track cores, not query volume |
 | `MAX_INFLIGHT` | `512` | In-flight cap before queries are shed |
@@ -117,6 +118,19 @@ one on demand, whatever `STATS_INTERVAL_SEC` is set to:
 
 `LISTEN_ADDR` defaults to every interface because the reference deployment is a
 container with its own network namespace. On a host, set it.
+
+A resolver URL naming a host rather than an address has to be resolved before
+it can be reached, and when this daemon is the box's resolver that lookup comes
+straight back to itself and never completes. So a hostname needs a bootstrap
+address, and startup refuses one without it:
+
+```bash
+DOH_URL=https://cloudflare-dns.com/dns-query
+DOH_BOOTSTRAP=cloudflare-dns.com=1.1.1.1,cloudflare-dns.com=1.0.0.1
+```
+
+The addresses are handed to curl as `CURLOPT_RESOLVE`, so TLS still verifies
+the certificate against the hostname. An IP-literal `DOH_URL` needs nothing.
 
 An IPv6 literal is accepted with or without brackets, and may carry a scope
 suffix (`fe80::1%eth0`). `LISTEN_ADDR=::` serves IPv4 clients on the same

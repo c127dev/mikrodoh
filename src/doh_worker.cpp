@@ -33,11 +33,15 @@ DohWorker::DohWorker(const Config& cfg, DnsCache& cache, Stats& stats)
 
     headers_ = curl_slist_append(headers_, "Content-Type: application/dns-message");
     headers_ = curl_slist_append(headers_, "Accept: application/dns-message");
+
+    for (const std::string& entry : cfg.resolve_entries)
+        resolve_ = curl_slist_append(resolve_, entry.c_str());
 }
 
 DohWorker::~DohWorker() {
     for (CURL* h : idle_) curl_easy_cleanup(h);
     curl_slist_free_all(headers_);
+    curl_slist_free_all(resolve_);
     curl_multi_cleanup(multi_);
 
     for (Transfer* t : inbox_) delete t;
@@ -49,6 +53,11 @@ void DohWorker::configure(CURL* handle) const {
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers_);
     curl_easy_setopt(handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
+
+    // A resolver named by hostname is reached through this, not getaddrinfo:
+    // that lookup would be sent to whatever the box's resolver is, which is
+    // this daemon, and never complete.
+    if (resolve_) curl_easy_setopt(handle, CURLOPT_RESOLVE, resolve_);
 
     // Wait for the existing multiplexed connection instead of opening another,
     // which is what keeps every stream on one HTTP/2 connection.
