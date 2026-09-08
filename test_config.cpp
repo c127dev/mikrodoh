@@ -16,7 +16,7 @@ const char* kKeys[] = {"LISTEN_ADDR",   "LISTEN_PORT",        "PORT",
                        "MAX_INFLIGHT",  "CIPHER",             "CONNECT_TIMEOUT_MS",
                        "REQUEST_TIMEOUT_MS", "TCP",           "TCP_MAX_CONNS",
                        "TCP_IDLE_SEC", "RESOLVER_COOLDOWN_MS",
-                       "DOH_BOOTSTRAP"};
+                       "DOH_BOOTSTRAP", "UDP_READERS"};
 
 // DOH_FAILOVER_URL_1.. are read until the first gap, so clear a few extra.
 const int kMaxFailoverKeys = 4;
@@ -60,6 +60,29 @@ TEST(workers_defaults_to_at_least_one) {
 
     set("WORKERS", "-4");
     CHECK(Config::from_env().workers >= 1);
+}
+
+TEST(udp_readers_defaults_to_the_worker_count) {
+    clear_env();
+    set("WORKERS", "3");
+    CHECK(Config::from_env().udp_readers == 3);
+
+    // A nonsense value falls back rather than binding no socket at all.
+    set("UDP_READERS", "0");
+    CHECK(Config::from_env().udp_readers == 3);
+
+    set("UDP_READERS", "-2");
+    CHECK(Config::from_env().udp_readers == 3);
+}
+
+TEST(udp_readers_can_be_set_apart_from_the_worker_count) {
+    clear_env();
+    set("WORKERS", "4");
+    set("UDP_READERS", "1");
+    CHECK(Config::from_env().udp_readers == 1);
+
+    set("UDP_READERS", "8");
+    CHECK(Config::from_env().udp_readers == 8);
 }
 
 TEST(listen_port_falls_back_to_the_older_port_key) {
