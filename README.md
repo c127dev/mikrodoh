@@ -87,6 +87,7 @@ supported device, in `--env-file` format.
 | `DOH_BOOTSTRAP` | unset | Addresses for resolvers named by hostname, as `host=addr` pairs separated by commas. Repeat a host to give it several addresses |
 | `CIPHER` | `auto` | `auto`, `chacha` or `aes` |
 | `WORKERS` | CPU cores | Event-loop threads; track cores, not query volume |
+| `UDP_READERS` | `WORKERS` | UDP reader threads, each with its own `SO_REUSEPORT` socket |
 | `MAX_INFLIGHT` | `512` | In-flight cap before queries are shed |
 | `RCVBUF_KB` | `4096` | UDP receive/send buffer, in kB |
 | `CHECK_CERT` | `true` | Verify the resolver's certificate |

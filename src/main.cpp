@@ -104,7 +104,11 @@ int main() {
 
     threads.emplace_back([&cfg, &stats] { stats_loop(cfg, stats); });
 
-    udp.run(g_stop);
+    // Reader 0 runs on this thread, so main still blocks until shutdown.
+    for (std::size_t i = 1; i < udp.readers(); ++i)
+        threads.emplace_back([&udp, i] { udp.run(i, g_stop); });
+
+    udp.run(0, g_stop);
 
     for (auto& thread : threads)
         if (thread.joinable()) thread.join();

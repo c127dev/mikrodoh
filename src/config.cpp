@@ -134,6 +134,9 @@ Config Config::from_env() {
         c.workers = hc > 0 ? static_cast<int>(hc) : 4;
     }
 
+    c.udp_readers = env_int("UDP_READERS", 0);
+    if (c.udp_readers < 1) c.udp_readers = c.workers;
+
     c.check_cert     = env_bool("CHECK_CERT", c.check_cert);
     c.tcp_keep_alive = env_int("TCP_KEEP_ALIVE", c.tcp_keep_alive);
     c.cache_ttl      = env_int("CACHE", c.cache_ttl);
@@ -224,6 +227,7 @@ void Config::print(std::ostream& os) const {
         os << "Bootstrap     : " << entry << "\n";
 
     os << "Event loops   : " << workers << "\n"
+       << "UDP readers   : " << udp_readers << "\n"
        << "Max in-flight : " << max_inflight << "\n"
        << "Timeouts      : " << connect_timeout_ms << "ms connect, "
        << request_timeout_ms << "ms request\n"

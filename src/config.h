@@ -20,6 +20,9 @@ struct Config {
     // is the box's resolver, because getaddrinfo would come back to itself.
     std::vector<std::string> resolve_entries;
     int         workers            = 0;
+    // UDP reader threads, each with its own SO_REUSEPORT socket. Defaults to
+    // `workers`; 1 restores the single-socket behaviour.
+    int         udp_readers        = 0;
     bool        check_cert         = true;
     int         tcp_keep_alive     = 0;
     int         cache_ttl          = 0;
