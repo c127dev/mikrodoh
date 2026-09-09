@@ -367,3 +367,36 @@ TEST(truncate_returns_nothing_without_a_header) {
     dns::UdpLimit             l;
     CHECK(dns::truncate(r.data(), r.size(), l).empty());
 }
+
+TEST(rcode_reads_the_low_nibble) {
+    std::vector<std::uint8_t> r = answer_to(query("example.com"));
+    r[3] = static_cast<std::uint8_t>((r[3] & 0xF0) | dns::kRcodeNxDomain);
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeNxDomain);
+
+    r[3] = static_cast<std::uint8_t>(0x80 | dns::kRcodeNoError);
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeNoError);
+}
+
+TEST(rcode_of_a_headerless_message_is_servfail) {
+    std::vector<std::uint8_t> r{0x00, 0x01};
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeServFail);
+}
+
+TEST(has_answers_follows_ancount) {
+    std::vector<std::uint8_t> r = answer_to(query("example.com"));
+    r[6] = 0;
+    r[7] = 0;
+    CHECK(!dns::has_answers(r.data(), r.size()));
+
+    r[7] = 1;
+    CHECK(dns::has_answers(r.data(), r.size()));
+
+    r[6] = 1;
+    r[7] = 0;
+    CHECK(dns::has_answers(r.data(), r.size()));
+}
+
+TEST(has_answers_is_false_without_a_header) {
+    std::vector<std::uint8_t> r{0x00, 0x01, 0x02};
+    CHECK(!dns::has_answers(r.data(), r.size()));
+}

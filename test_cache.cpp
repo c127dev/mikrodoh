@@ -2,8 +2,10 @@
 
 #include "cache.h"
 
+#include <chrono>
 #include <initializer_list>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -94,4 +96,33 @@ TEST(overflow_drops_entries) {
 
     CHECK(found > 0);
     CHECK(found <= 16);
+}
+
+TEST(a_shorter_ttl_override_expires_early) {
+    DnsCache cache(3600);
+    cache.store("k", bytes({0, 0, 1}), 1);
+
+    std::vector<std::uint8_t> out;
+    CHECK(cache.lookup("k", out));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    CHECK(!cache.lookup("k", out));
+}
+
+TEST(a_ttl_override_never_extends_the_configured_ttl) {
+    DnsCache cache(1);
+    cache.store("k", bytes({0, 0, 1}), 3600);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
+    std::vector<std::uint8_t> out;
+    CHECK(!cache.lookup("k", out));
+}
+
+TEST(a_ttl_override_of_zero_uses_the_configured_ttl) {
+    DnsCache cache(60);
+    cache.store("k", bytes({0, 0, 1}), 0);
+
+    std::vector<std::uint8_t> out;
+    CHECK(cache.lookup("k", out));
 }
