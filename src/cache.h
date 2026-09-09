@@ -18,7 +18,10 @@ public:
     static std::string key_of(const std::uint8_t* packet, std::size_t len);
 
     bool lookup(const std::string& key, std::vector<std::uint8_t>& out) const;
-    void store(const std::string& key, const std::vector<std::uint8_t>& response);
+    // `ttl_override` above zero shortens this entry's lifetime; it is clamped
+    // to the configured TTL and never extends it.
+    void store(const std::string& key, const std::vector<std::uint8_t>& response,
+               int ttl_override = 0);
 
 private:
     struct Entry {

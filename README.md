@@ -99,6 +99,7 @@ supported device, in `--env-file` format.
 | `TCP_MAX_CONNS` | `128` | Accepted TCP connections; further ones are closed at once |
 | `TCP_IDLE_SEC` | `10` | Close a TCP connection after this long with no query |
 | `CACHE` | `0` | Response TTL in seconds, `0` disables the cache |
+| `CACHE_NEGATIVE` | `60` | TTL for NXDOMAIN and empty answers, clamped to `CACHE`, `0` keeps them out of the cache. SERVFAIL and REFUSED are never cached |
 | `STATS_INTERVAL_SEC` | `300` | Seconds between stats lines, `0` disables them |
 | `RUN_AS_USER` | unset | User (name or uid) to switch to once the sockets are bound |
 | `RUN_AS_GROUP` | user's primary group | Group (name or gid) to switch to |

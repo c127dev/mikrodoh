@@ -177,7 +177,20 @@ void DohWorker::finish(Transfer* t, bool ok) {
     if (ok) {
         t->reply(t->response.data(), t->response.size());
         stats_.served++;
-        cache_.store(t->cache_key, t->response);
+
+        // An HTTP 200 only means the resolver answered. SERVFAIL and REFUSED
+        // are transient or policy-driven, so they are not cached at all; a
+        // negative answer is cached for a shorter time than a real one.
+        std::uint8_t rc = dns::rcode(t->response.data(), t->response.size());
+        if (rc == dns::kRcodeNoError || rc == dns::kRcodeNxDomain) {
+            bool negative = rc == dns::kRcodeNxDomain ||
+                            !dns::has_answers(t->response.data(), t->response.size());
+            // CACHE_NEGATIVE=0 keeps negative answers out of the cache.
+            if (!negative)
+                cache_.store(t->cache_key, t->response);
+            else if (cfg_.cache_negative_ttl > 0)
+                cache_.store(t->cache_key, t->response, cfg_.cache_negative_ttl);
+        }
     } else {
         // Say so rather than staying silent: a client with no answer waits out
         // its own timeout before trying anything else.

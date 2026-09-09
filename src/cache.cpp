@@ -24,10 +24,14 @@ bool DnsCache::lookup(const std::string& key, std::vector<std::uint8_t>& out) co
     return true;
 }
 
-void DnsCache::store(const std::string& key, const std::vector<std::uint8_t>& response) {
+void DnsCache::store(const std::string& key, const std::vector<std::uint8_t>& response,
+                     int ttl_override) {
     if (!enabled() || key.empty()) return;
+
+    int ttl = ttl_;
+    if (ttl_override > 0 && ttl_override < ttl) ttl = ttl_override;
 
     std::unique_lock<std::shared_mutex> lock(mutex_);
     if (entries_.size() > max_entries_) entries_.clear();
-    entries_[key] = Entry{response, std::time(nullptr) + ttl_};
+    entries_[key] = Entry{response, std::time(nullptr) + ttl};
 }

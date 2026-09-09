@@ -130,6 +130,16 @@ bool response_matches(const std::uint8_t* query, std::size_t qlen,
     return std::memcmp(query + name_end, resp + name_end, 4) == 0;
 }
 
+std::uint8_t rcode(const std::uint8_t* msg, std::size_t len) {
+    if (len < kHeaderLen) return kRcodeServFail;
+    return static_cast<std::uint8_t>(msg[3] & 0x0F);
+}
+
+bool has_answers(const std::uint8_t* msg, std::size_t len) {
+    if (len < kHeaderLen) return false;
+    return (msg[6] << 8 | msg[7]) != 0;
+}
+
 std::vector<std::uint8_t> make_error(const std::uint8_t* query, std::size_t len,
                                      std::uint8_t rcode) {
     if (len < kHeaderLen) return {};

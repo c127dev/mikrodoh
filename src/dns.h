@@ -48,7 +48,17 @@ UdpLimit udp_limit(const std::uint8_t* query, std::size_t len);
 std::vector<std::uint8_t> truncate(const std::uint8_t* resp, std::size_t len,
                                    const UdpLimit& limit);
 
+constexpr std::uint8_t kRcodeNoError  = 0;
 constexpr std::uint8_t kRcodeServFail = 2;
+constexpr std::uint8_t kRcodeNxDomain = 3;
 constexpr std::uint8_t kRcodeRefused  = 5;
+
+// The message's 4-bit RCODE, ignoring the EDNS0 extension bits. kRcodeServFail
+// when the message is too short to carry a header.
+std::uint8_t rcode(const std::uint8_t* msg, std::size_t len);
+
+// True when the message answers with at least one record in its answer
+// section.
+bool has_answers(const std::uint8_t* msg, std::size_t len);
 
 }  // namespace dns

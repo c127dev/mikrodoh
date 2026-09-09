@@ -140,6 +140,10 @@ Config Config::from_env() {
     c.check_cert     = env_bool("CHECK_CERT", c.check_cert);
     c.tcp_keep_alive = env_int("TCP_KEEP_ALIVE", c.tcp_keep_alive);
     c.cache_ttl      = env_int("CACHE", c.cache_ttl);
+
+    c.cache_negative_ttl = env_int("CACHE_NEGATIVE", c.cache_negative_ttl);
+    if (c.cache_negative_ttl < 0) c.cache_negative_ttl = 0;
+
     c.rcvbuf_kb      = env_int("RCVBUF_KB", c.rcvbuf_kb);
 
     c.connect_timeout_ms = env_int("CONNECT_TIMEOUT_MS", c.connect_timeout_ms);
@@ -238,6 +242,7 @@ void Config::print(std::ostream& os) const {
        << "Check cert    : " << (check_cert ? "true" : "false") << "\n"
        << "TCP keep-alive: " << tcp_keep_alive << "s\n"
        << "Cache TTL     : " << cache_ttl << "s\n"
+       << "Cache neg TTL : " << cache_negative_ttl << "s\n"
        << "TCP           : " << (tcp_enabled ? "on" : "off") << ", max "
        << tcp_max_conns << " conns, " << tcp_idle_sec << "s idle\n"
        << "Run as        : "

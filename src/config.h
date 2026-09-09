@@ -26,6 +26,10 @@ struct Config {
     bool        check_cert         = true;
     int         tcp_keep_alive     = 0;
     int         cache_ttl          = 0;
+    // TTL for a negative answer (NXDOMAIN, or NOERROR with no records).
+    // Clamped to `cache_ttl`. RFC 2308 caps a negative TTL well below a
+    // positive one, and an rcode other than these two is not cached at all.
+    int         cache_negative_ttl = 60;
     long        max_inflight       = 512;
     int         rcvbuf_kb          = 4096;
     int         connect_timeout_ms = 3000;
