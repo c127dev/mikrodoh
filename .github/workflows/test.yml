@@ -42,6 +42,11 @@ jobs:
           echo "source branch: ${{ inputs.source_branch }}"
           echo "source commit: $(git rev-parse HEAD)"
 
+      # dispatch.cpp includes doh_worker.h, which needs the curl headers even
+      # though the tests link stubs instead of the event loop.
+      - name: Install the curl headers
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
       - name: Configure
         run: cmake -S .tests -B build -DMIKRODOH_SRC="$PWD"
 
