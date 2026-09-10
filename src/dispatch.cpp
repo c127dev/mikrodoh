@@ -42,6 +42,13 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
         if ((dropped & 0x3FF) == 0)
             std::cerr << "[shed] dropped " << dropped << " queries (in-flight cap "
                       << cfg_.max_inflight << ")\n";
+
+        // Say no now: a silent drop makes a UDP client wait out its own timeout
+        // and leaves a TCP connection open until the idle sweep, which holds a
+        // slot the cap is meant to free.
+        std::vector<std::uint8_t> fail =
+            dns::make_error(msg, len, dns::kRcodeServFail);
+        if (!fail.empty()) t->reply(fail.data(), fail.size());
         return;
     }
 
