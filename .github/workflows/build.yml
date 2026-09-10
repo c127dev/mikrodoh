@@ -123,6 +123,11 @@ jobs:
           ref: tests
           path: .tests
 
+      # dispatch.cpp includes doh_worker.h, which needs the curl headers even
+      # though the tests link stubs instead of the event loop.
+      - name: Install the curl headers
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
       - name: Build
         run: |
           cmake -S .tests -B build-tests -DMIKRODOH_SRC="$PWD"
