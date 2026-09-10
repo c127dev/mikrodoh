@@ -20,6 +20,7 @@ add_executable(mikrodoh_tests
     harness.cpp
     test_cache.cpp
     test_config.cpp
+    test_dispatch.cpp
     test_dns.cpp
     test_net.cpp
     test_tcp_conn.cpp
@@ -27,9 +28,11 @@ add_executable(mikrodoh_tests
     "${MIKRODOH_SRC}/src/cache.cpp"
     "${MIKRODOH_SRC}/src/config.cpp"
     "${MIKRODOH_SRC}/src/cpu.cpp"
+    "${MIKRODOH_SRC}/src/dispatch.cpp"
     "${MIKRODOH_SRC}/src/dns.cpp"
     "${MIKRODOH_SRC}/src/net.cpp"
     "${MIKRODOH_SRC}/src/tcp_conn.cpp"
+    "${MIKRODOH_SRC}/src/transfer.cpp"
 )
 
 target_include_directories(mikrodoh_tests PRIVATE "${MIKRODOH_SRC}/src")
