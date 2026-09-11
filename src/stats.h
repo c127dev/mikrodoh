@@ -9,10 +9,12 @@ struct Stats {
     std::atomic<unsigned long> served{0};
     std::atomic<unsigned long> failed{0};
     std::atomic<unsigned long> rejected{0};
+    // Answered SERVFAIL because the source was over its per-prefix rate.
+    std::atomic<unsigned long> throttled{0};
     std::atomic<unsigned long> cache_hits{0};
     std::atomic<long>          tcp_conns{0};
 
-    // One line: served, failed, rejected, dropped, in-flight, TCP connections
+    // One line: served, failed, rejected, dropped, throttled, in-flight, TCP connections
     // and the cache hit rate. Written on the interval and on SIGUSR1.
     void print(std::ostream& os) const;
 };

@@ -14,6 +14,9 @@ RB4011iGS+ running the proxy in a RouterOS v7 container.
   count.
 - **Load shedding.** Queries above the in-flight cap are dropped instead of
   queued, so accepted queries keep bounded latency under burst.
+- **Rate limit per source prefix.** A token bucket per client prefix, so one
+  loud or spoofed source cannot spend the in-flight budget every other client
+  shares. Off by default: see `RATE_LIMIT_QPS`.
 - **Cipher selection from CPU features.** See below.
 - **UDP and TCP.** A stub that gets a truncated answer retries over TCP, so
   TCP/53 has to answer. The TCP listener follows RFC 7766: two-byte length
@@ -89,6 +92,10 @@ supported device, in `--env-file` format.
 | `WORKERS` | CPU cores | Event-loop threads; track cores, not query volume |
 | `UDP_READERS` | `WORKERS` | UDP reader threads, each with its own `SO_REUSEPORT` socket |
 | `MAX_INFLIGHT` | `512` | In-flight cap before queries are shed |
+| `RATE_LIMIT_QPS` | `0` | Queries per second per source prefix, `0` disables the limiter. Over the rate a query is answered SERVFAIL |
+| `RATE_LIMIT_BURST` | `RATE_LIMIT_QPS` | Token bucket depth, i.e. how far a source may burst above the rate |
+| `RATE_LIMIT_V4_PREFIX` | `32` | IPv4 prefix length a bucket covers |
+| `RATE_LIMIT_V6_PREFIX` | `56` | IPv6 prefix length a bucket covers, capped at 64 |
 | `RCVBUF_KB` | `4096` | UDP receive/send buffer, in kB |
 | `CHECK_CERT` | `true` | Verify the resolver's certificate |
 | `CONNECT_TIMEOUT_MS` | `3000` | Upstream connect timeout |

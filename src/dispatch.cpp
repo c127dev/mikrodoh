@@ -8,7 +8,12 @@
 
 Dispatcher::Dispatcher(const Config& cfg, DnsCache& cache, Stats& stats,
                        std::vector<std::unique_ptr<DohWorker>>& workers)
-    : cfg_(cfg), cache_(cache), stats_(stats), workers_(workers) {}
+    : cfg_(cfg),
+      cache_(cache),
+      stats_(stats),
+      workers_(workers),
+      limiter_(cfg.rate_limit_qps, cfg.rate_limit_burst, cfg.rate_limit_v4_prefix,
+               cfg.rate_limit_v6_prefix) {}
 
 void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
     const std::uint8_t* msg = t->payload.data();
@@ -18,6 +23,21 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
     // what turns a resolver into a reflector. Drop it.
     if (!dns::query_valid(msg, len)) {
         stats_.rejected++;
+        return;
+    }
+
+    // Per-source budget before anything else is spent on the query, cache hits
+    // included: the point is to cap what one source can make this daemon send,
+    // not only what it can make it fetch.
+    if (!limiter_.allow(t->client_addr)) {
+        unsigned long throttled = ++stats_.throttled;
+        if ((throttled & 0x3FF) == 0)
+            std::cerr << "[rate] throttled " << throttled << " queries ("
+                      << cfg_.rate_limit_qps << " qps per prefix)\n";
+
+        std::vector<std::uint8_t> fail =
+            dns::make_error(msg, len, dns::kRcodeServFail);
+        if (!fail.empty()) t->reply(fail.data(), fail.size());
         return;
     }
 

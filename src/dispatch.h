@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "config.h"
+#include "ratelimit.h"
 #include "stats.h"
 #include "transfer.h"
 
@@ -28,4 +29,6 @@ private:
 
     std::vector<std::unique_ptr<DohWorker>>& workers_;
     std::atomic<unsigned>                    next_{0};
+
+    RateLimiter limiter_;
 };

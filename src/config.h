@@ -31,6 +31,13 @@ struct Config {
     // positive one, and an rcode other than these two is not cached at all.
     int         cache_negative_ttl = 60;
     long        max_inflight       = 512;
+    // Token bucket per source prefix, on top of the global in-flight cap.
+    // 0 qps disables it, which is the default: the right rate depends on how
+    // many clients sit behind one prefix.
+    long        rate_limit_qps     = 0;
+    long        rate_limit_burst   = 0;  // 0 means "same as qps"
+    int         rate_limit_v4_prefix = 32;
+    int         rate_limit_v6_prefix = 56;
     int         rcvbuf_kb          = 4096;
     int         connect_timeout_ms = 3000;
     int         request_timeout_ms = 5000;

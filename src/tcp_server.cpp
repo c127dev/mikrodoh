@@ -72,7 +72,10 @@ bool TcpServer::open() {
 }
 
 void TcpServer::accept_one() {
-    int cfd = accept(fd_, nullptr, nullptr);
+    sockaddr_storage peer{};
+    socklen_t        peer_len = sizeof(peer);
+
+    int cfd = accept(fd_, reinterpret_cast<sockaddr*>(&peer), &peer_len);
     if (cfd < 0) return;
 
     // Over the cap the connection is refused immediately rather than left in
@@ -90,6 +93,7 @@ void TcpServer::accept_one() {
     Slot slot;
     slot.conn                = std::make_shared<TcpConn>(cfd);
     slot.conn->last_activity = std::time(nullptr);
+    slot.conn->peer          = peer;
     slots_.push_back(std::move(slot));
     stats_.tcp_conns++;
 }
@@ -125,8 +129,9 @@ bool TcpServer::read_and_dispatch(Slot& slot) {
 
         const std::uint8_t* msg = conn.in.data() + pos + kLenPrefix;
 
-        auto t     = std::make_unique<Transfer>();
-        t->conn    = slot.conn;
+        auto t        = std::make_unique<Transfer>();
+        t->conn        = slot.conn;
+        t->client_addr = conn.peer;  // for the rate limiter; the reply goes down `conn`
         t->payload.assign(msg, msg + msg_len);
         dispatcher_.dispatch(std::move(t));
 

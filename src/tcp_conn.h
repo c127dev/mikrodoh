@@ -7,6 +7,9 @@
 #include <mutex>
 #include <vector>
 
+#include <netinet/in.h>
+#include <sys/socket.h>
+
 // One accepted TCP connection. The accept loop owns the read side; workers
 // finishing a transfer call send_message() from their own threads, so the
 // write side is behind a mutex.
@@ -40,6 +43,9 @@ public:
     // is the one field the loop shares.
     std::vector<std::uint8_t> in;
     std::time_t               last_activity = 0;
+    // Filled by the accept loop. The rate limiter needs it; the reply path
+    // does not, because it writes back down this connection.
+    sockaddr_storage          peer{};
     std::atomic<long>         inflight{0};
 
 private:

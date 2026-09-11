@@ -165,6 +165,13 @@ Config Config::from_env() {
     c.max_inflight = env_long("MAX_INFLIGHT", c.max_inflight);
     if (c.max_inflight < 1) c.max_inflight = 1;
 
+    c.rate_limit_qps   = env_long("RATE_LIMIT_QPS", c.rate_limit_qps);
+    c.rate_limit_burst = env_long("RATE_LIMIT_BURST", c.rate_limit_burst);
+    if (c.rate_limit_qps < 0) c.rate_limit_qps = 0;
+    if (c.rate_limit_burst < 0) c.rate_limit_burst = 0;
+    c.rate_limit_v4_prefix = env_int("RATE_LIMIT_V4_PREFIX", c.rate_limit_v4_prefix);
+    c.rate_limit_v6_prefix = env_int("RATE_LIMIT_V6_PREFIX", c.rate_limit_v6_prefix);
+
     c.ipv6_v6only = env_bool("IPV6_V6ONLY", c.ipv6_v6only);
 
     std::string ipv = lower(env_str("IP_VERSION", "auto"));
@@ -233,6 +240,15 @@ void Config::print(std::ostream& os) const {
     os << "Event loops   : " << workers << "\n"
        << "UDP readers   : " << udp_readers << "\n"
        << "Max in-flight : " << max_inflight << "\n"
+       << "Rate limit    : "
+       << (rate_limit_qps > 0
+               ? std::to_string(rate_limit_qps) + " qps, burst " +
+                     std::to_string(rate_limit_burst > 0 ? rate_limit_burst
+                                                         : rate_limit_qps) +
+                     ", per /" + std::to_string(rate_limit_v4_prefix) + " v4 and /" +
+                     std::to_string(rate_limit_v6_prefix) + " v6"
+               : std::string("off"))
+       << "\n"
        << "Timeouts      : " << connect_timeout_ms << "ms connect, "
        << request_timeout_ms << "ms request\n"
        << "Cooldown      : "
