@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -56,10 +57,17 @@ struct Pair {
             if (fd >= 0) close(fd);
     }
 
-    std::unique_ptr<Transfer> transfer(const std::vector<std::uint8_t>& payload) {
+    std::unique_ptr<Transfer> transfer(const std::vector<std::uint8_t>& payload,
+                                       const char* client = "10.0.0.1") {
         auto t     = std::make_unique<Transfer>();
         t->payload = payload;
         t->udp_fd  = fds[1];
+
+        // The address is what the rate limiter keys on. `addr_len` stays zero:
+        // the reply goes down a socketpair, which takes no destination.
+        auto& in4      = reinterpret_cast<sockaddr_in&>(t->client_addr);
+        in4.sin_family = AF_INET;
+        inet_pton(AF_INET, client, &in4.sin_addr);
         return t;
     }
 
@@ -141,6 +149,92 @@ TEST(a_query_under_the_cap_is_not_shed) {
     CHECK(p.received().empty());  // the answer comes from the worker, not here
     CHECK(f.stats.dropped.load() == 0);
     CHECK(f.stats.inflight.load() == 4);
+}
+
+TEST(a_query_over_the_client_rate_is_answered_with_servfail) {
+    // The limiter is built with the dispatcher, so the rate has to be set
+    // before the fixture is constructed.
+    Config cfg;
+    cfg.rate_limit_qps   = 1;
+    cfg.rate_limit_burst = 1;
+
+    DnsCache                                cache{0};
+    Stats                                   stats;
+    std::vector<std::unique_ptr<DohWorker>> workers;
+    workers.push_back(std::make_unique<DohWorker>(cfg, cache, stats));
+    Dispatcher dispatcher{cfg, cache, stats, workers};
+
+    Pair                      p;
+    std::vector<std::uint8_t> q = query("example.com");
+
+    dispatcher.dispatch(p.transfer(q));
+    CHECK(p.received().empty());  // the first one goes to the worker
+    CHECK(stats.throttled.load() == 0);
+
+    dispatcher.dispatch(p.transfer(q));
+
+    std::vector<std::uint8_t> r = p.received();
+    CHECK(r.size() == q.size());
+    CHECK(r[0] == q[0] && r[1] == q[1]);
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeServFail);
+    CHECK(stats.throttled.load() == 1);
+    CHECK(stats.inflight.load() == 1);  // the throttled query took no slot
+}
+
+TEST(one_throttled_client_does_not_throttle_another) {
+    Config cfg;
+    cfg.rate_limit_qps       = 1;
+    cfg.rate_limit_burst     = 1;
+    cfg.rate_limit_v4_prefix = 32;
+
+    DnsCache                                cache{0};
+    Stats                                   stats;
+    std::vector<std::unique_ptr<DohWorker>> workers;
+    workers.push_back(std::make_unique<DohWorker>(cfg, cache, stats));
+    Dispatcher dispatcher{cfg, cache, stats, workers};
+
+    std::vector<std::uint8_t> q = query("example.com");
+
+    Pair loud;
+    dispatcher.dispatch(loud.transfer(q, "10.0.0.1"));
+    dispatcher.dispatch(loud.transfer(q, "10.0.0.1"));
+    CHECK(!loud.received().empty());  // second one was refused
+
+    Pair quiet;
+    dispatcher.dispatch(quiet.transfer(q, "10.0.0.2"));
+    CHECK(quiet.received().empty());
+    CHECK(stats.throttled.load() == 1);
+}
+
+TEST(a_cache_hit_is_charged_to_the_client_rate) {
+    // Answering from cache still puts a packet on the wire, so it has to cost
+    // a token: otherwise a source picks one name and floods with it for free.
+    Config cfg;
+    cfg.rate_limit_qps   = 1;
+    cfg.rate_limit_burst = 1;
+    cfg.cache_ttl        = 60;
+
+    DnsCache                                cache{cfg.cache_ttl};
+    Stats                                   stats;
+    std::vector<std::unique_ptr<DohWorker>> workers;
+    Dispatcher dispatcher{cfg, cache, stats, workers};
+
+    std::vector<std::uint8_t> q = query("example.com");
+
+    std::vector<std::uint8_t> answer = q;
+    answer[2] |= 0x80;
+    cache.store(DnsCache::key_of(q.data(), q.size()), answer);
+
+    Pair p;
+    dispatcher.dispatch(p.transfer(q));
+    CHECK(!p.received().empty());
+    CHECK(stats.cache_hits.load() == 1);
+
+    dispatcher.dispatch(p.transfer(q));
+    std::vector<std::uint8_t> r = p.received();
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeServFail);
+    CHECK(stats.cache_hits.load() == 1);
+    CHECK(stats.throttled.load() == 1);
 }
 
 TEST(a_malformed_query_is_rejected_in_silence) {

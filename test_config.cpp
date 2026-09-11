@@ -16,7 +16,9 @@ const char* kKeys[] = {"LISTEN_ADDR",   "LISTEN_PORT",        "PORT",
                        "MAX_INFLIGHT",  "CIPHER",             "CONNECT_TIMEOUT_MS",
                        "REQUEST_TIMEOUT_MS", "TCP",           "TCP_MAX_CONNS",
                        "TCP_IDLE_SEC", "RESOLVER_COOLDOWN_MS",
-                       "DOH_BOOTSTRAP", "UDP_READERS"};
+                       "DOH_BOOTSTRAP", "UDP_READERS",
+                       "RATE_LIMIT_QPS", "RATE_LIMIT_BURST",
+                       "RATE_LIMIT_V4_PREFIX", "RATE_LIMIT_V6_PREFIX"};
 
 // DOH_FAILOVER_URL_1.. are read until the first gap, so clear a few extra.
 const int kMaxFailoverKeys = 4;
@@ -262,4 +264,38 @@ TEST(malformed_bootstrap_items_are_skipped) {
     Config c = Config::from_env();
     CHECK(c.resolve_entries.size() == 1);
     CHECK(c.resolve_entries[0] == "dns.example:443:9.9.9.9");
+}
+
+TEST(the_rate_limit_is_off_unless_a_rate_is_set) {
+    clear_env();
+    Config c = Config::from_env();
+
+    CHECK(c.rate_limit_qps == 0);
+    CHECK(c.rate_limit_burst == 0);
+    CHECK(c.rate_limit_v4_prefix == 32);
+    CHECK(c.rate_limit_v6_prefix == 56);
+}
+
+TEST(rate_limit_keys_are_read) {
+    clear_env();
+    set("RATE_LIMIT_QPS", "50");
+    set("RATE_LIMIT_BURST", "120");
+    set("RATE_LIMIT_V4_PREFIX", "24");
+    set("RATE_LIMIT_V6_PREFIX", "48");
+
+    Config c = Config::from_env();
+    CHECK(c.rate_limit_qps == 50);
+    CHECK(c.rate_limit_burst == 120);
+    CHECK(c.rate_limit_v4_prefix == 24);
+    CHECK(c.rate_limit_v6_prefix == 48);
+}
+
+TEST(a_negative_rate_limit_is_read_as_off) {
+    clear_env();
+    set("RATE_LIMIT_QPS", "-1");
+    set("RATE_LIMIT_BURST", "-5");
+
+    Config c = Config::from_env();
+    CHECK(c.rate_limit_qps == 0);
+    CHECK(c.rate_limit_burst == 0);
 }
