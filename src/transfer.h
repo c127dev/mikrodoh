@@ -24,6 +24,11 @@ struct Transfer {
     // each failure, and past any resolver in cooldown, until the list runs out.
     std::size_t url = 0;
 
+    // The datagram was larger than the read buffer, so `payload` holds only
+    // its first bytes. Nothing but an error can be built from a query whose
+    // tail was never read.
+    bool query_truncated = false;
+
     int                      udp_fd = -1;
     sockaddr_storage         client_addr{};
     socklen_t                addr_len = 0;

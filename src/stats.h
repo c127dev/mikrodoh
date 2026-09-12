@@ -11,6 +11,8 @@ struct Stats {
     std::atomic<unsigned long> rejected{0};
     // Answered SERVFAIL because the source was over its per-prefix rate.
     std::atomic<unsigned long> throttled{0};
+    // Answered FORMERR because the datagram was larger than the read buffer.
+    std::atomic<unsigned long> oversized{0};
     std::atomic<unsigned long> cache_hits{0};
     std::atomic<long>          tcp_conns{0};
 

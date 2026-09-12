@@ -19,16 +19,9 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
     const std::uint8_t* msg = t->payload.data();
     const std::size_t   len = t->payload.size();
 
-    // Answering a malformed datagram, or one that is already a response, is
-    // what turns a resolver into a reflector. Drop it.
-    if (!dns::query_valid(msg, len)) {
-        stats_.rejected++;
-        return;
-    }
-
-    // Per-source budget before anything else is spent on the query, cache hits
-    // included: the point is to cap what one source can make this daemon send,
-    // not only what it can make it fetch.
+    // Per-source budget first, and on every datagram rather than every valid
+    // one: a source is charged for what it sends, and the point is to cap what
+    // it can make this daemon send back, cache hits included.
     if (!limiter_.allow(t->client_addr)) {
         unsigned long throttled = ++stats_.throttled;
         if ((throttled & 0x3FF) == 0)
@@ -38,6 +31,25 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
         std::vector<std::uint8_t> fail =
             dns::make_error(msg, len, dns::kRcodeServFail);
         if (!fail.empty()) t->reply(fail.data(), fail.size());
+        return;
+    }
+
+    // A query whose tail never fit the read buffer cannot be forwarded or
+    // validated, and dropping it in silence leaves the client to wait out its
+    // own timeout on what is a client-side error. Say FORMERR.
+    if (t->query_truncated) {
+        stats_.oversized++;
+
+        std::vector<std::uint8_t> fail =
+            dns::make_error(msg, len, dns::kRcodeFormErr);
+        if (!fail.empty()) t->reply(fail.data(), fail.size());
+        return;
+    }
+
+    // Answering a malformed datagram, or one that is already a response, is
+    // what turns a resolver into a reflector. Drop it.
+    if (!dns::query_valid(msg, len)) {
+        stats_.rejected++;
         return;
     }
 

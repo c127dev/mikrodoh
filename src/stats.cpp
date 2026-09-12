@@ -11,6 +11,7 @@ void Stats::print(std::ostream& os) const {
        << " rejected=" << rejected.load(std::memory_order_relaxed)
        << " dropped=" << dropped.load(std::memory_order_relaxed)
        << " throttled=" << throttled.load(std::memory_order_relaxed)
+       << " oversized=" << oversized.load(std::memory_order_relaxed)
        << " inflight=" << inflight.load(std::memory_order_relaxed)
        << " tcp_conns=" << tcp_conns.load(std::memory_order_relaxed)
        << " cache_hits=" << hits << " hit_rate=";

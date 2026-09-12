@@ -49,6 +49,7 @@ std::vector<std::uint8_t> truncate(const std::uint8_t* resp, std::size_t len,
                                    const UdpLimit& limit);
 
 constexpr std::uint8_t kRcodeNoError  = 0;
+constexpr std::uint8_t kRcodeFormErr  = 1;
 constexpr std::uint8_t kRcodeServFail = 2;
 constexpr std::uint8_t kRcodeNxDomain = 3;
 constexpr std::uint8_t kRcodeRefused  = 5;

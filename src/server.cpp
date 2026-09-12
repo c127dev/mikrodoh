@@ -123,7 +123,10 @@ void UdpServer::run(std::size_t index, const std::atomic<bool>& stop) {
         // MSG_WAITFORONE returns as soon as the first datagram is in, so a
         // single query is not held back waiting for the batch to fill. The
         // SO_RCVTIMEO above bounds that first wait.
-        int got = recvmmsg(fd, msgs.data(), kBatch, MSG_WAITFORONE, nullptr);
+        // MSG_TRUNC reports the datagram's real size in msg_len even when it
+        // did not fit the buffer. Without it an oversized query arrives cut,
+        // looks malformed and is dropped in silence.
+        int got = recvmmsg(fd, msgs.data(), kBatch, MSG_WAITFORONE | MSG_TRUNC, nullptr);
         if (got <= 0) continue;
 
         for (int i = 0; i < got; i++) {
@@ -134,6 +137,14 @@ void UdpServer::run(std::size_t index, const std::atomic<bool>& stop) {
             t->udp_fd      = fd;
             t->client_addr = clients[i];
             t->addr_len    = msgs[i].msg_hdr.msg_namelen;
+
+            // Both are checked: msg_len is the datagram's size and the flag is
+            // what the kernel sets when it did not all fit.
+            if (len > kMaxDnsPacket ||
+                (msgs[i].msg_hdr.msg_flags & MSG_TRUNC) != 0) {
+                t->query_truncated = true;
+                len                = kMaxDnsPacket;
+            }
 
             const std::uint8_t* data = buffers.data() + i * kMaxDnsPacket;
             t->payload.assign(data, data + len);

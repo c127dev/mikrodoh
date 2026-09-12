@@ -27,6 +27,9 @@ RB4011iGS+ running the proxy in a RouterOS v7 container.
   forwarded or answered, so the proxy cannot be used as a reflector.
 - **A failed lookup answers SERVFAIL** instead of nothing, so the client fails
   over immediately rather than waiting out its own timeout.
+- **A query too large for the read buffer answers FORMERR.** The UDP reader
+  asks the kernel for the datagram's real size, so one that did not fit is
+  answered rather than silently cut and then refused as malformed.
 
 ## Cipher selection
 
