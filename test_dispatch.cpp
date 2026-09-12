@@ -250,3 +250,121 @@ TEST(a_malformed_query_is_rejected_in_silence) {
     CHECK(f.stats.rejected.load() == 1);
     CHECK(f.stats.dropped.load() == 0);
 }
+
+TEST(an_oversized_query_is_answered_with_formerr) {
+    // The reader could not fit the datagram, so the payload is the head of a
+    // query whose tail was never seen. Answering beats the silence that made
+    // the client wait out its own timeout.
+    Fixture f;
+    f.workers.push_back(std::make_unique<DohWorker>(f.cfg, f.cache, f.stats));
+
+    Pair                      p;
+    std::vector<std::uint8_t> q = query("example.com");
+    auto                      t = p.transfer(q);
+    t->query_truncated          = true;
+    f.dispatcher.dispatch(std::move(t));
+
+    std::vector<std::uint8_t> r = p.received();
+    CHECK(r.size() == q.size());
+    CHECK(r[0] == q[0] && r[1] == q[1]);  // the client's transaction ID
+    CHECK((r[2] & 0x80) != 0);            // QR
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeFormErr);
+    CHECK(r[4] == 0 && r[5] == 1);        // the question that did fit is echoed
+    CHECK(r[6] == 0 && r[7] == 0);        // and no records
+
+    CHECK(f.stats.oversized.load() == 1);
+    CHECK(f.stats.rejected.load() == 0);
+    CHECK(f.stats.inflight.load() == 0);  // never forwarded, never a slot
+}
+
+TEST(an_oversized_query_cut_inside_its_question_still_answers) {
+    // The cut can land mid-question, which leaves nothing to echo. The reply
+    // has to stay self-consistent rather than quote bytes that were not read.
+    Fixture f;
+
+    Pair                      p;
+    std::vector<std::uint8_t> q = query("example.com");
+    q.resize(dns::kHeaderLen + 4);  // header plus a piece of the name
+
+    auto t             = p.transfer(q);
+    t->query_truncated = true;
+    f.dispatcher.dispatch(std::move(t));
+
+    std::vector<std::uint8_t> r = p.received();
+    CHECK(r.size() == dns::kHeaderLen);
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeFormErr);
+    CHECK(r[4] == 0 && r[5] == 0);  // QDCOUNT zeroed with the question gone
+    CHECK(f.stats.oversized.load() == 1);
+}
+
+TEST(an_oversized_query_with_no_header_is_dropped) {
+    // Too short to answer at all: there is no transaction ID to answer with.
+    Fixture f;
+
+    Pair                      p;
+    std::vector<std::uint8_t> q{0x12, 0x34};
+    auto                      t = p.transfer(q);
+    t->query_truncated          = true;
+    f.dispatcher.dispatch(std::move(t));
+
+    CHECK(p.received().empty());
+    CHECK(f.stats.oversized.load() == 1);
+}
+
+TEST(an_oversized_query_is_charged_to_the_client_rate) {
+    // The limiter runs before validation, so a source cannot dodge its budget
+    // by sending datagrams this daemon refuses.
+    Config cfg;
+    cfg.rate_limit_qps   = 1;
+    cfg.rate_limit_burst = 1;
+
+    DnsCache                                cache{0};
+    Stats                                   stats;
+    std::vector<std::unique_ptr<DohWorker>> workers;
+    Dispatcher dispatcher{cfg, cache, stats, workers};
+
+    std::vector<std::uint8_t> q = query("example.com");
+
+    Pair p;
+    auto first             = p.transfer(q);
+    first->query_truncated = true;
+    dispatcher.dispatch(std::move(first));
+
+    std::vector<std::uint8_t> formerr = p.received();
+    CHECK(formerr.size() >= dns::kHeaderLen);
+    CHECK(dns::rcode(formerr.data(), formerr.size()) == dns::kRcodeFormErr);
+
+    auto second             = p.transfer(q);
+    second->query_truncated = true;
+    dispatcher.dispatch(std::move(second));
+
+    std::vector<std::uint8_t> r = p.received();
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeServFail);
+    CHECK(stats.throttled.load() == 1);
+    CHECK(stats.oversized.load() == 1);
+}
+
+TEST(a_malformed_query_is_charged_to_the_client_rate) {
+    Config cfg;
+    cfg.rate_limit_qps   = 1;
+    cfg.rate_limit_burst = 1;
+
+    DnsCache                                cache{0};
+    Stats                                   stats;
+    std::vector<std::unique_ptr<DohWorker>> workers;
+    Dispatcher dispatcher{cfg, cache, stats, workers};
+
+    Pair                      p;
+    std::vector<std::uint8_t> junk{0x12, 0x34, 0x01};
+
+    dispatcher.dispatch(p.transfer(junk));
+    CHECK(p.received().empty());
+    CHECK(stats.rejected.load() == 1);
+
+    // The token is gone, so a well-formed query from the same source now waits
+    // its turn like any other.
+    dispatcher.dispatch(p.transfer(query("example.com")));
+    std::vector<std::uint8_t> r = p.received();
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeServFail);
+    CHECK(stats.throttled.load() == 1);
+}
