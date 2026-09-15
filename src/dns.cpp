@@ -183,7 +183,8 @@ UdpLimit udp_limit(const std::uint8_t* query, std::size_t len) {
         if (type == kTypeOpt) {
             // OPT stores the sender's payload size in the CLASS field.
             std::size_t advertised = read16(query + fixed + 2);
-            limit.edns  = true;
+            limit.edns      = true;
+            limit.dnssec_ok = (query[fixed + 6] & 0x80) != 0;
             limit.bytes = advertised < kMinUdpPayload ? kMinUdpPayload : advertised;
             return limit;
         }

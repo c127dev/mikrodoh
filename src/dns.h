@@ -35,6 +35,7 @@ std::vector<std::uint8_t> make_error(const std::uint8_t* query, std::size_t len,
 struct UdpLimit {
     std::size_t bytes = kMinUdpPayload;
     bool        edns  = false;  // the query carried an OPT record
+    bool        dnssec_ok = false;  // the OPT record's DO bit
 };
 
 // The payload size advertised by the query's OPT record, clamped to

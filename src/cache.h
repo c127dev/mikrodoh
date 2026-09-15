@@ -15,7 +15,10 @@ public:
 
     bool enabled() const { return ttl_ > 0; }
 
-    // Query bytes minus the 2-byte transaction ID. Empty when not cacheable.
+    // The header flags, the question, and whether the query carried an OPT
+    // record and its DO bit. The rest of the OPT record is left out, so a DNS
+    // cookie that changes per query does not change the key. Empty when not
+    // cacheable.
     static std::string key_of(const std::uint8_t* packet, std::size_t len);
 
     bool lookup(const std::string& key, std::vector<std::uint8_t>& out) const;

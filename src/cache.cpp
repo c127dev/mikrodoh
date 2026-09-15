@@ -1,11 +1,23 @@
 #include "cache.h"
 
+#include "dns.h"
+
 DnsCache::DnsCache(int ttl_seconds, std::size_t max_entries)
     : ttl_(ttl_seconds), max_entries_(max_entries) {}
 
 std::string DnsCache::key_of(const std::uint8_t* packet, std::size_t len) {
-    if (len <= 2) return {};
-    return std::string(reinterpret_cast<const char*>(packet) + 2, len - 2);
+    std::size_t end = dns::question_end(packet, len);
+    if (end == 0) return {};
+
+    dns::UdpLimit limit = dns::udp_limit(packet, len);
+
+    std::string key;
+    key.reserve(3 + end - dns::kHeaderLen);
+    key.push_back(static_cast<char>(packet[2]));
+    key.push_back(static_cast<char>(packet[3]));
+    key.push_back(static_cast<char>((limit.edns ? 1 : 0) | (limit.dnssec_ok ? 2 : 0)));
+    key.append(reinterpret_cast<const char*>(packet) + dns::kHeaderLen, end - dns::kHeaderLen);
+    return key;
 }
 
 bool DnsCache::lookup(const std::string& key, std::vector<std::uint8_t>& out) const {
