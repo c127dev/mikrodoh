@@ -244,6 +244,14 @@ TEST(udp_limit_reads_the_advertised_payload_size) {
     CHECK(l.edns);
 }
 
+TEST(udp_limit_reads_the_do_bit) {
+    std::vector<std::uint8_t> q = with_opt(query("example.com"), 1232);
+    CHECK(!dns::udp_limit(q.data(), q.size()).dnssec_ok);
+
+    q[q.size() - 4] = 0x80;  // TTL flags, high byte
+    CHECK(dns::udp_limit(q.data(), q.size()).dnssec_ok);
+}
+
 TEST(udp_limit_clamps_an_advertised_size_below_512) {
     std::vector<std::uint8_t> q = with_opt(query("example.com"), 300);
     dns::UdpLimit             l = dns::udp_limit(q.data(), q.size());
