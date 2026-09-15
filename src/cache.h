@@ -3,7 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
-#include <shared_mutex>
+#include <list>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -25,12 +26,16 @@ public:
 
 private:
     struct Entry {
-        std::vector<std::uint8_t> response;
-        std::time_t               expires;
+        std::vector<std::uint8_t>        response;
+        std::time_t                      expires;
+        std::list<std::string>::iterator order;
     };
 
-    int                                    ttl_;
-    std::size_t                            max_entries_;
-    mutable std::shared_mutex              mutex_;
+    int         ttl_;
+    std::size_t max_entries_;
+    // A lookup reorders `order_`, so both paths take the lock exclusively.
+    mutable std::mutex                     mutex_;
+    // Most recently used key first.
+    mutable std::list<std::string>         order_;
     std::unordered_map<std::string, Entry> entries_;
 };
