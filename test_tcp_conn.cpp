@@ -158,3 +158,39 @@ TEST(nothing_is_written_after_a_failure) {
     CHECK(!p.conn.want_write());
     CHECK(!p.conn.flush());
 }
+
+TEST(a_connection_is_not_idle_before_the_whole_timeout) {
+    std::uint64_t last = 1'000'000;
+
+    CHECK(!tcp_conn_idle(last, last, 10));
+    CHECK(!tcp_conn_idle(last + 9'999, last, 10));
+    CHECK(tcp_conn_idle(last + 10'000, last, 10));
+    CHECK(tcp_conn_idle(last + 10'001, last, 10));
+}
+
+TEST(sub_second_activity_does_not_shorten_the_timeout) {
+    // The whole-second sweep called this idle: 10 - 1 == 9 at one second of
+    // resolution, a full second early.
+    std::uint64_t last = 1'000'900;
+
+    CHECK(!tcp_conn_idle(last + 9'100, last, 10));
+    CHECK(tcp_conn_idle(last + 10'000, last, 10));
+}
+
+TEST(a_clock_that_does_not_advance_keeps_the_connection) {
+    CHECK(!tcp_conn_idle(500, 500, 10));
+    CHECK(!tcp_conn_idle(400, 500, 10));
+}
+
+TEST(a_non_positive_timeout_reaps_immediately) {
+    CHECK(tcp_conn_idle(500, 500, 0));
+    CHECK(tcp_conn_idle(500, 500, -1));
+}
+
+TEST(the_activity_clock_is_monotonic_milliseconds) {
+    std::uint64_t a = tcp_now_ms();
+    std::uint64_t b = tcp_now_ms();
+
+    CHECK(a > 0);
+    CHECK(b >= a);
+}
