@@ -83,19 +83,41 @@ TEST(a_response_shorter_than_a_transaction_id_is_not_returned) {
     CHECK(!cache.lookup("k", out));
 }
 
-TEST(overflow_drops_entries) {
+TEST(overflow_keeps_the_most_recent_entries) {
     DnsCache cache(60, 4);
 
     for (int i = 0; i < 16; ++i) cache.store("key" + std::to_string(i), bytes({0, 0, 1}));
 
-    int found = 0;
-    for (int i = 0; i < 16; ++i) {
-        std::vector<std::uint8_t> out;
-        if (cache.lookup("key" + std::to_string(i), out)) found++;
-    }
+    std::vector<std::uint8_t> out;
+    for (int i = 0; i < 12; ++i) CHECK(!cache.lookup("key" + std::to_string(i), out));
+    for (int i = 12; i < 16; ++i) CHECK(cache.lookup("key" + std::to_string(i), out));
+}
 
-    CHECK(found > 0);
-    CHECK(found <= 16);
+TEST(overflow_evicts_the_least_recently_used_entry) {
+    DnsCache cache(60, 2);
+    cache.store("a", bytes({0, 0, 1}));
+    cache.store("b", bytes({0, 0, 2}));
+
+    std::vector<std::uint8_t> out;
+    CHECK(cache.lookup("a", out));
+
+    cache.store("c", bytes({0, 0, 3}));
+
+    CHECK(cache.lookup("a", out));
+    CHECK(!cache.lookup("b", out));
+    CHECK(cache.lookup("c", out));
+}
+
+TEST(restoring_a_key_replaces_it_without_evicting) {
+    DnsCache cache(60, 2);
+    cache.store("a", bytes({0, 0, 1}));
+    cache.store("b", bytes({0, 0, 2}));
+    cache.store("a", bytes({0, 0, 9}));
+
+    std::vector<std::uint8_t> out;
+    CHECK(cache.lookup("b", out));
+    CHECK(cache.lookup("a", out));
+    CHECK(out == bytes({0, 0, 9}));
 }
 
 TEST(a_shorter_ttl_override_expires_early) {
