@@ -5,7 +5,7 @@
 #include "transfer.h"
 
 #include <cerrno>
-#include <ctime>
+#include <cstdint>
 #include <iostream>
 
 #include <fcntl.h>
@@ -92,7 +92,7 @@ void TcpServer::accept_one() {
 
     Slot slot;
     slot.conn                = std::make_shared<TcpConn>(cfd);
-    slot.conn->last_activity = std::time(nullptr);
+    slot.conn->last_activity = tcp_now_ms();
     slot.conn->peer          = peer;
     slots_.push_back(std::move(slot));
     stats_.tcp_conns++;
@@ -113,7 +113,7 @@ bool TcpServer::read_and_dispatch(Slot& slot) {
     } else if (n < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) return false;
     } else {
-        conn.last_activity = std::time(nullptr);
+        conn.last_activity = tcp_now_ms();
     }
 
     std::size_t pos = 0;
@@ -144,12 +144,12 @@ bool TcpServer::read_and_dispatch(Slot& slot) {
 }
 
 void TcpServer::reap_idle() {
-    std::time_t now = std::time(nullptr);
+    std::uint64_t now = tcp_now_ms();
 
     for (auto it = slots_.begin(); it != slots_.end();) {
         TcpConn& conn = *it->conn;
 
-        bool idle = now - conn.last_activity >= cfg_.tcp_idle_sec;
+        bool idle = tcp_conn_idle(now, conn.last_activity, cfg_.tcp_idle_sec);
         bool done = conn.inflight <= 0 && !conn.want_write();
 
         if (conn.failed() || ((it->reading_done || idle) && done)) {

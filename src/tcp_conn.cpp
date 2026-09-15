@@ -1,6 +1,7 @@
 #include "tcp_conn.h"
 
 #include <cerrno>
+#include <chrono>
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -12,6 +13,18 @@ namespace {
 constexpr std::size_t kCompactThreshold = 4096;
 
 }  // namespace
+
+std::uint64_t tcp_now_ms() {
+    using namespace std::chrono;
+    return static_cast<std::uint64_t>(
+        duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
+}
+
+bool tcp_conn_idle(std::uint64_t now_ms, std::uint64_t last_ms, int idle_sec) {
+    if (idle_sec <= 0) return true;
+    if (now_ms <= last_ms) return false;
+    return now_ms - last_ms >= static_cast<std::uint64_t>(idle_sec) * 1000;
+}
 
 TcpConn::TcpConn(int fd) : fd_(fd) {}
 

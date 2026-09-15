@@ -3,12 +3,19 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <ctime>
 #include <mutex>
 #include <vector>
 
 #include <netinet/in.h>
 #include <sys/socket.h>
+
+// Monotonic milliseconds, the unit of TcpConn::last_activity.
+std::uint64_t tcp_now_ms();
+
+// Whether a connection last active at `last_ms` has been idle for the whole
+// configured timeout. Milliseconds throughout: whole-second arithmetic cut the
+// timeout short by up to a second.
+bool tcp_conn_idle(std::uint64_t now_ms, std::uint64_t last_ms, int idle_sec);
 
 // One accepted TCP connection. The accept loop owns the read side; workers
 // finishing a transfer call send_message() from their own threads, so the
@@ -40,9 +47,11 @@ public:
 
     // Read buffer and idle clock: loop-side only, no lock. `inflight` is
     // raised by the dispatcher and lowered by whichever worker finishes, so it
-    // is the one field the loop shares.
+    // is the one field the loop shares. The clock is monotonic milliseconds,
+    // so the sweep neither rounds the timeout down nor follows a wall-clock
+    // step.
     std::vector<std::uint8_t> in;
-    std::time_t               last_activity = 0;
+    std::uint64_t             last_activity = 0;
     // Filled by the accept loop. The rate limiter needs it; the reply path
     // does not, because it writes back down this connection.
     sockaddr_storage          peer{};
