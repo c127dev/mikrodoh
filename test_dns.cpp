@@ -408,3 +408,47 @@ TEST(has_answers_is_false_without_a_header) {
     std::vector<std::uint8_t> r{0x00, 0x01, 0x02};
     CHECK(!dns::has_answers(r.data(), r.size()));
 }
+
+namespace {
+
+std::vector<std::uint8_t> with_a(std::vector<std::uint8_t> r, std::uint32_t ttl) {
+    r[7] = static_cast<std::uint8_t>(r[7] + 1);  // ANCOUNT
+    r.insert(r.end(), {0xC0, 12, 0, 1, 0, 1,
+                       static_cast<std::uint8_t>(ttl >> 24), static_cast<std::uint8_t>(ttl >> 16),
+                       static_cast<std::uint8_t>(ttl >> 8), static_cast<std::uint8_t>(ttl),
+                       0, 4, 192, 0, 2, 1});
+    return r;
+}
+
+}  // namespace
+
+TEST(min_ttl_is_the_lowest_record_ttl) {
+    std::vector<std::uint8_t> r = with_a(with_a(query("example.com", 1, 0x8180), 300), 60);
+    CHECK(dns::min_ttl(r.data(), r.size()) == 60);
+}
+
+TEST(min_ttl_is_minus_one_without_records) {
+    std::vector<std::uint8_t> r = query("example.com", 1, 0x8180);
+    CHECK(dns::min_ttl(r.data(), r.size()) == -1);
+}
+
+TEST(min_ttl_ignores_the_opt_record) {
+    std::vector<std::uint8_t> r = with_a(query("example.com", 1, 0x8180), 300);
+    r = with_opt(std::move(r), 1232);
+    CHECK(dns::min_ttl(r.data(), r.size()) == 300);
+}
+
+TEST(min_ttl_treats_a_top_bit_ttl_as_zero) {
+    std::vector<std::uint8_t> r = with_a(query("example.com", 1, 0x8180), 0x80000000u);
+    CHECK(dns::min_ttl(r.data(), r.size()) == 0);
+}
+
+TEST(age_ttls_lowers_every_ttl_and_stops_at_zero) {
+    std::vector<std::uint8_t> r = with_a(with_a(query("example.com", 1, 0x8180), 300), 5);
+    dns::age_ttls(r.data(), r.size(), 10);
+    CHECK(dns::min_ttl(r.data(), r.size()) == 0);
+
+    std::vector<std::uint8_t> s = with_a(query("example.com", 1, 0x8180), 300);
+    dns::age_ttls(s.data(), s.size(), 10);
+    CHECK(dns::min_ttl(s.data(), s.size()) == 290);
+}

@@ -33,6 +33,23 @@ std::vector<std::uint8_t> with_cookie(std::vector<std::uint8_t> q, int cookie, b
     return q;
 }
 
+// An answer to query(0) with one A record of `ttl` seconds.
+std::vector<std::uint8_t> answer(int ttl) {
+    std::vector<std::uint8_t> r = query(0);
+    r[2] = 0x81;
+    r[3] = 0x80;
+    r[7] = 1;  // ANCOUNT
+    std::vector<std::uint8_t> rr = bytes({0xC0, 12, 0, 1, 0, 1, (ttl >> 24) & 0xFF, (ttl >> 16) & 0xFF,
+                                          (ttl >> 8) & 0xFF, ttl & 0xFF, 0, 4, 192, 0, 2, 1});
+    r.insert(r.end(), rr.begin(), rr.end());
+    return r;
+}
+
+int ttl_of(const std::vector<std::uint8_t>& r) {
+    std::size_t at = r.size() - 10;
+    return r[at] << 24 | r[at + 1] << 16 | r[at + 2] << 8 | r[at + 3];
+}
+
 std::string key(const std::vector<std::uint8_t>& q) { return DnsCache::key_of(q.data(), q.size()); }
 
 }  // namespace
@@ -182,4 +199,37 @@ TEST(a_ttl_override_of_zero_uses_the_configured_ttl) {
 
     std::vector<std::uint8_t> out;
     CHECK(cache.lookup("k", out));
+}
+
+TEST(a_record_ttl_below_the_configured_ttl_expires_early) {
+    DnsCache cache(3600);
+    cache.store("k", answer(1));
+
+    std::vector<std::uint8_t> out;
+    CHECK(cache.lookup("k", out));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    CHECK(!cache.lookup("k", out));
+}
+
+TEST(a_zero_record_ttl_is_not_stored) {
+    DnsCache cache(60);
+    cache.store("k", answer(0));
+
+    std::vector<std::uint8_t> out;
+    CHECK(!cache.lookup("k", out));
+}
+
+TEST(lookup_lowers_record_ttls_by_the_time_cached) {
+    DnsCache cache(60);
+    cache.store("k", answer(30));
+
+    std::vector<std::uint8_t> out;
+    CHECK(cache.lookup("k", out));
+    CHECK(ttl_of(out) == 30 || ttl_of(out) == 29);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    CHECK(cache.lookup("k", out));
+    CHECK(ttl_of(out) < 30);
+    CHECK(ttl_of(out) >= 28);
 }
