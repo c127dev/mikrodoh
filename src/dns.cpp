@@ -58,6 +58,42 @@ std::size_t rr_end(const std::uint8_t* msg, std::size_t len, std::size_t pos,
     return end <= len ? end : 0;
 }
 
+std::uint32_t read32(const std::uint8_t* p) {
+    return static_cast<std::uint32_t>(p[0]) << 24 | static_cast<std::uint32_t>(p[1]) << 16 |
+           static_cast<std::uint32_t>(p[2]) << 8 | p[3];
+}
+
+void write32(std::uint8_t* p, std::uint32_t v) {
+    p[0] = static_cast<std::uint8_t>(v >> 24);
+    p[1] = static_cast<std::uint8_t>(v >> 16);
+    p[2] = static_cast<std::uint8_t>(v >> 8);
+    p[3] = static_cast<std::uint8_t>(v);
+}
+
+// Calls `f` with the offset of each record's TTL, OPT excluded: its TTL field
+// holds flags. False when a record is malformed.
+template <typename F>
+bool for_each_ttl(const std::uint8_t* msg, std::size_t len, F f) {
+    std::size_t pos = question_end(msg, len);
+    if (pos == 0) return false;
+
+    std::size_t records = static_cast<std::size_t>(read16(msg + 6)) + read16(msg + 8) +
+                          read16(msg + 10);
+
+    for (std::size_t i = 0; i < records; i++) {
+        std::uint16_t type  = 0;
+        std::size_t   fixed = 0;
+
+        std::size_t end = rr_end(msg, len, pos, type, fixed);
+        if (end == 0) return false;
+
+        if (type != kTypeOpt) f(fixed + 4);
+        pos = end;
+    }
+
+    return true;
+}
+
 // Safe to run over a whole name: a label length is at most 63 and so never
 // falls in the 'A'-'Z' range this folds.
 std::uint8_t lower(std::uint8_t c) {
@@ -133,6 +169,27 @@ bool response_matches(const std::uint8_t* query, std::size_t qlen,
 std::uint8_t rcode(const std::uint8_t* msg, std::size_t len) {
     if (len < kHeaderLen) return kRcodeServFail;
     return static_cast<std::uint8_t>(msg[3] & 0x0F);
+}
+
+long min_ttl(const std::uint8_t* msg, std::size_t len) {
+    long lowest = -1;
+
+    bool ok = for_each_ttl(msg, len, [&](std::size_t at) {
+        // RFC 2181 section 8: a TTL with the top bit set is treated as zero.
+        std::uint32_t ttl = read32(msg + at);
+        long          v   = ttl > 0x7FFFFFFF ? 0 : static_cast<long>(ttl);
+        if (lowest < 0 || v < lowest) lowest = v;
+    });
+
+    return ok ? lowest : -1;
+}
+
+void age_ttls(std::uint8_t* msg, std::size_t len, std::uint32_t elapsed) {
+    for_each_ttl(msg, len, [&](std::size_t at) {
+        std::uint32_t ttl = read32(msg + at);
+        if (ttl > 0x7FFFFFFF) ttl = 0;
+        write32(msg + at, ttl > elapsed ? ttl - elapsed : 0);
+    });
 }
 
 bool has_answers(const std::uint8_t* msg, std::size_t len) {

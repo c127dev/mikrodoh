@@ -21,15 +21,18 @@ public:
     // cacheable.
     static std::string key_of(const std::uint8_t* packet, std::size_t len);
 
+    // `out` has every record TTL lowered by the time the entry has spent here.
     bool lookup(const std::string& key, std::vector<std::uint8_t>& out) const;
-    // `ttl_override` above zero shortens this entry's lifetime; it is clamped
-    // to the configured TTL and never extends it.
+    // The entry lives for the lowest record TTL in `response`, capped by the
+    // configured TTL. `ttl_override` above zero caps it further and never
+    // extends it. A response whose lowest TTL is zero is not stored.
     void store(const std::string& key, const std::vector<std::uint8_t>& response,
                int ttl_override = 0);
 
 private:
     struct Entry {
         std::vector<std::uint8_t>        response;
+        std::time_t                      stored;
         std::time_t                      expires;
         std::list<std::string>::iterator order;
     };

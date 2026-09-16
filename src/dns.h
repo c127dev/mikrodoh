@@ -63,4 +63,12 @@ std::uint8_t rcode(const std::uint8_t* msg, std::size_t len);
 // section.
 bool has_answers(const std::uint8_t* msg, std::size_t len);
 
+// The lowest TTL over every record but OPT. -1 when the message has no such
+// record or does not parse.
+long min_ttl(const std::uint8_t* msg, std::size_t len);
+
+// Every TTL but OPT's lowered by `elapsed` seconds, stopping at zero. A
+// message that does not parse is left as far as the walk got.
+void age_ttls(std::uint8_t* msg, std::size_t len, std::uint32_t elapsed);
+
 }  // namespace dns
