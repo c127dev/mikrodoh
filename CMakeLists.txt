@@ -24,6 +24,7 @@ add_executable(mikrodoh_tests
     test_dns.cpp
     test_net.cpp
     test_ratelimit.cpp
+    test_sandbox.cpp
     test_tcp_conn.cpp
 
     "${MIKRODOH_SRC}/src/cache.cpp"
@@ -33,6 +34,7 @@ add_executable(mikrodoh_tests
     "${MIKRODOH_SRC}/src/dns.cpp"
     "${MIKRODOH_SRC}/src/net.cpp"
     "${MIKRODOH_SRC}/src/ratelimit.cpp"
+    "${MIKRODOH_SRC}/src/sandbox.cpp"
     "${MIKRODOH_SRC}/src/tcp_conn.cpp"
     "${MIKRODOH_SRC}/src/transfer.cpp"
 )
