@@ -2,6 +2,7 @@
 
 #include "dns.h"
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -451,4 +452,86 @@ TEST(age_ttls_lowers_every_ttl_and_stops_at_zero) {
     std::vector<std::uint8_t> s = with_a(query("example.com", 1, 0x8180), 300);
     dns::age_ttls(s.data(), s.size(), 10);
     CHECK(dns::min_ttl(s.data(), s.size()) == 290);
+}
+
+namespace {
+
+// `q` with an OPT record whose RDATA is `options`.
+std::vector<std::uint8_t> with_options(std::vector<std::uint8_t> q,
+                                       const std::vector<std::uint8_t>& options) {
+    q = with_opt(std::move(q), 1232, static_cast<std::uint16_t>(options.size()));
+    std::copy(options.begin(), options.end(), q.end() - static_cast<std::ptrdiff_t>(options.size()));
+    return q;
+}
+
+// The OPT RDATA of a message built by with_options, after sanitize_edns.
+std::vector<std::uint8_t> opt_rdata(const std::vector<std::uint8_t>& q, std::size_t opt_at) {
+    std::size_t rdlen = static_cast<std::size_t>(q[opt_at + 9] << 8 | q[opt_at + 10]);
+    return std::vector<std::uint8_t>(q.begin() + static_cast<std::ptrdiff_t>(opt_at + 11),
+                                     q.begin() + static_cast<std::ptrdiff_t>(opt_at + 11 + rdlen));
+}
+
+const std::vector<std::uint8_t> kEcs{0, 8, 0, 7, 0, 1, 24, 0, 192, 0, 2};
+const std::vector<std::uint8_t> kCookie{0, 10, 0, 8, 1, 2, 3, 4, 5, 6, 7, 8};
+
+}  // namespace
+
+TEST(sanitize_edns_strips_client_subnet) {
+    std::vector<std::uint8_t> q      = with_options(query("example.com"), kEcs);
+    std::size_t               opt_at = query("example.com").size();
+
+    dns::sanitize_edns(q);
+
+    std::vector<std::uint8_t> rdata = opt_rdata(q, opt_at);
+    CHECK(rdata.size() >= 4);
+    CHECK(rdata[0] == 0 && rdata[1] == 12);  // padding is all that is left
+    CHECK(opt_at + 11 + rdata.size() == q.size());
+}
+
+TEST(sanitize_edns_keeps_other_options) {
+    std::vector<std::uint8_t> opts = kEcs;
+    opts.insert(opts.end(), kCookie.begin(), kCookie.end());
+    std::vector<std::uint8_t> q      = with_options(query("example.com"), opts);
+    std::size_t               opt_at = query("example.com").size();
+
+    dns::sanitize_edns(q);
+
+    std::vector<std::uint8_t> rdata = opt_rdata(q, opt_at);
+    CHECK(std::equal(kCookie.begin(), kCookie.end(), rdata.begin()));
+}
+
+TEST(sanitize_edns_pads_to_a_multiple_of_128) {
+    std::vector<std::uint8_t> q = with_options(query("example.com"), kEcs);
+    dns::sanitize_edns(q);
+    CHECK(q.size() % 128 == 0);
+
+    std::vector<std::uint8_t> r = with_opt(query("example.com"), 1232);
+    dns::sanitize_edns(r);
+    CHECK(r.size() == 128);
+    CHECK(dns::query_valid(r.data(), r.size()));
+    CHECK(dns::udp_limit(r.data(), r.size()).bytes == 1232);
+}
+
+TEST(sanitize_edns_replaces_existing_padding) {
+    std::vector<std::uint8_t> q = with_options(query("example.com"), {0, 12, 0, 200});
+    q.insert(q.end(), 200, 0);
+    q[q.size() - 200 - 6] = 204 >> 8;  // RDLENGTH covers the padding bytes
+    q[q.size() - 200 - 5] = 204 & 0xFF;
+
+    dns::sanitize_edns(q);
+    CHECK(q.size() == 128);
+}
+
+TEST(sanitize_edns_leaves_a_query_without_opt_alone) {
+    std::vector<std::uint8_t> q    = query("example.com");
+    std::vector<std::uint8_t> copy = q;
+    dns::sanitize_edns(q);
+    CHECK(q == copy);
+}
+
+TEST(sanitize_edns_leaves_a_malformed_option_alone) {
+    std::vector<std::uint8_t> q    = with_options(query("example.com"), {0, 8, 0, 9, 0});
+    std::vector<std::uint8_t> copy = q;
+    dns::sanitize_edns(q);
+    CHECK(q == copy);
 }
