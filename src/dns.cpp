@@ -10,6 +10,9 @@ constexpr std::uint8_t  kLabelMask   = 0xC0;  // top two bits mark a pointer
 constexpr std::size_t   kMaxNameLen  = 255;
 constexpr std::uint8_t  kOpcodeQuery = 0;
 constexpr std::uint16_t kTypeOpt     = 41;
+constexpr std::uint16_t kOptEcs      = 8;
+constexpr std::uint16_t kOptPadding  = 12;
+constexpr std::size_t   kPadBlock    = 128;  // RFC 8467 section 4.1, queries
 
 // Type, class, TTL and RDLENGTH, the fixed part of a record after its name.
 constexpr std::size_t kRrFixedLen = 10;
@@ -169,6 +172,59 @@ bool response_matches(const std::uint8_t* query, std::size_t qlen,
 std::uint8_t rcode(const std::uint8_t* msg, std::size_t len) {
     if (len < kHeaderLen) return kRcodeServFail;
     return static_cast<std::uint8_t>(msg[3] & 0x0F);
+}
+
+void sanitize_edns(std::vector<std::uint8_t>& query) {
+    std::size_t pos = question_end(query.data(), query.size());
+    if (pos == 0) return;
+
+    std::size_t records = static_cast<std::size_t>(read16(query.data() + 6)) +
+                          read16(query.data() + 8) + read16(query.data() + 10);
+
+    for (std::size_t i = 0; i < records; i++) {
+        std::uint16_t type  = 0;
+        std::size_t   fixed = 0;
+
+        std::size_t end = rr_end(query.data(), query.size(), pos, type, fixed);
+        if (end == 0) return;
+
+        if (type != kTypeOpt) {
+            pos = end;
+            continue;
+        }
+
+        std::size_t rdata = fixed + kRrFixedLen;
+
+        std::vector<std::uint8_t> kept;
+        for (std::size_t at = rdata; at < end;) {
+            if (at + 4 > end) return;
+            std::uint16_t code   = read16(query.data() + at);
+            std::size_t   optlen = read16(query.data() + at + 2);
+            if (at + 4 + optlen > end) return;
+
+            if (code != kOptEcs && code != kOptPadding)
+                kept.insert(kept.end(), query.begin() + static_cast<std::ptrdiff_t>(at),
+                            query.begin() + static_cast<std::ptrdiff_t>(at + 4 + optlen));
+            at += 4 + optlen;
+        }
+
+        // The padding option's own 4-byte header counts toward the block.
+        std::size_t unpadded = query.size() - (end - rdata) + kept.size() + 4;
+        std::size_t pad      = (kPadBlock - unpadded % kPadBlock) % kPadBlock;
+        if (kept.size() + 4 + pad > 0xFFFF) return;
+
+        kept.push_back(0);
+        kept.push_back(static_cast<std::uint8_t>(kOptPadding));
+        kept.push_back(static_cast<std::uint8_t>(pad >> 8));
+        kept.push_back(static_cast<std::uint8_t>(pad & 0xFF));
+        kept.insert(kept.end(), pad, 0);
+
+        write16(query.data() + fixed + 8, static_cast<std::uint16_t>(kept.size()));
+        query.erase(query.begin() + static_cast<std::ptrdiff_t>(rdata),
+                    query.begin() + static_cast<std::ptrdiff_t>(end));
+        query.insert(query.begin() + static_cast<std::ptrdiff_t>(rdata), kept.begin(), kept.end());
+        return;
+    }
 }
 
 long min_ttl(const std::uint8_t* msg, std::size_t len) {

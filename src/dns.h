@@ -63,6 +63,12 @@ std::uint8_t rcode(const std::uint8_t* msg, std::size_t len);
 // section.
 bool has_answers(const std::uint8_t* msg, std::size_t len);
 
+// Rewrites the OPT record of `query` for the resolver: EDNS Client Subnet and
+// any existing padding are removed, then RFC 8467 padding brings the message
+// to a multiple of 128 bytes. A query without an OPT record, or one that does
+// not parse, is left alone.
+void sanitize_edns(std::vector<std::uint8_t>& query);
+
 // The lowest TTL over every record but OPT. -1 when the message has no such
 // record or does not parse.
 long min_ttl(const std::uint8_t* msg, std::size_t len);

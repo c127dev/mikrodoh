@@ -84,6 +84,9 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
         return;
     }
 
+    // The client's subnet is what this proxy hides from the resolver.
+    dns::sanitize_edns(t->payload);
+
     stats_.inflight++;
     if (t->conn) t->conn->inflight++;
 
