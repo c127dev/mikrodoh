@@ -26,6 +26,7 @@ add_executable(mikrodoh
     src/doh_worker.cpp
     src/privs.cpp
     src/ratelimit.cpp
+    src/sandbox.cpp
     src/server.cpp
     src/stats.cpp
     src/tcp_conn.cpp

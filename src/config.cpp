@@ -154,6 +154,7 @@ Config Config::from_env() {
 
     c.run_as_user  = env_str("RUN_AS_USER", c.run_as_user);
     c.run_as_group = env_str("RUN_AS_GROUP", c.run_as_group);
+    c.sandbox      = env_bool("SANDBOX", c.sandbox);
 
     c.stats_interval_sec = env_int("STATS_INTERVAL_SEC", c.stats_interval_sec);
     if (c.stats_interval_sec < 0) c.stats_interval_sec = 0;
@@ -267,6 +268,7 @@ void Config::print(std::ostream& os) const {
                                                     ? ""
                                                     : ":" + run_as_group))
        << "\n"
+       << "Sandbox       : " << (sandbox ? "on" : "off") << "\n"
        << "Stats line    : "
        << (stats_interval_sec > 0 ? std::to_string(stats_interval_sec) + "s"
                                   : std::string("off, SIGUSR1 only"))

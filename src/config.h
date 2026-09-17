@@ -57,6 +57,9 @@ struct Config {
     std::string run_as_user;
     std::string run_as_group;
 
+    // no_new_privs and a seccomp filter, applied after the uid switch.
+    bool sandbox = true;
+
     // Seconds between stats log lines. 0 turns the periodic line off; a
     // SIGUSR1 dump still works.
     int stats_interval_sec = 300;

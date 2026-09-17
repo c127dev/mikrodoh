@@ -113,12 +113,21 @@ supported device, in `--env-file` format.
 | `STATS_INTERVAL_SEC` | `300` | Seconds between stats lines, `0` disables them |
 | `RUN_AS_USER` | unset | User (name or uid) to switch to once the sockets are bound |
 | `RUN_AS_GROUP` | user's primary group | Group (name or gid) to switch to |
+| `SANDBOX` | `true` | Set `no_new_privs` and a seccomp filter after the switch |
 
 `RUN_AS_USER` only applies when the process starts as root, which is what
 binding port 53 without `CAP_NET_BIND_SERVICE` needs. The switch happens after
 both listeners are bound and before any worker thread starts, and startup
 aborts if it fails. Under the reference container the daemon already starts
 unprivileged on a high port, so leave it unset there.
+
+`SANDBOX` then sets `no_new_privs` and installs a seccomp filter before any
+worker thread starts. The filter fails with `EPERM` the syscalls the daemon
+never makes: exec, ptrace, mount and namespace changes, credential changes,
+module and kexec loading, bpf, perf and keyrings. A syscall made through
+another ABI (x32 or a 32-bit compat entry) kills the process. On an
+architecture other than x86_64, i386, arm64, armv7 and riscv64 only
+`no_new_privs` is set. Startup aborts if either step fails.
 
 A stats line reports served, failed, rejected and dropped counts, the
 in-flight and TCP connection gauges, and the cache hit rate. `SIGUSR1` prints

@@ -13,6 +13,7 @@
 #include "dispatch.h"
 #include "doh_worker.h"
 #include "privs.h"
+#include "sandbox.h"
 #include "server.h"
 #include "stats.h"
 #include "tcp_server.h"
@@ -89,6 +90,11 @@ int main() {
     // After the binds, so a privileged port still works, and before any
     // worker thread exists to inherit the old credentials.
     if (!drop_privileges(cfg.run_as_user, cfg.run_as_group)) {
+        curl_global_cleanup();
+        return 1;
+    }
+
+    if (cfg.sandbox && !enter_sandbox()) {
         curl_global_cleanup();
         return 1;
     }
