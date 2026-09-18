@@ -34,7 +34,16 @@ add_executable(mikrodoh
     src/transfer.cpp
 )
 
-target_compile_options(mikrodoh PRIVATE -O2 -pipe ${MIKRODOH_TUNE_ARGS})
+# The daemon parses untrusted network bytes.
+target_compile_options(mikrodoh PRIVATE
+    -O2 -pipe
+    -Wall -Wextra -Wformat=2 -Wconversion -Wshadow
+    -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2
+    -D_GLIBCXX_ASSERTIONS
+    -fstack-protector-strong
+    -fPIE
+    ${MIKRODOH_TUNE_ARGS})
+target_link_libraries(mikrodoh PRIVATE -pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack)
 target_link_libraries(mikrodoh PRIVATE CURL::libcurl Threads::Threads)
 
 install(TARGETS mikrodoh RUNTIME DESTINATION bin)
