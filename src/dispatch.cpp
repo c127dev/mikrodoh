@@ -4,6 +4,7 @@
 #include "dns.h"
 #include "doh_worker.h"
 
+#include <functional>
 #include <iostream>
 
 Dispatcher::Dispatcher(const Config& cfg, DnsCache& cache, Stats& stats,
@@ -53,9 +54,11 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
         return;
     }
 
-    if (cache_.enabled()) {
-        t->cache_key = DnsCache::key_of(msg, len);
+    // Computed with the cache off as well: identical in-flight queries are
+    // coalesced on it.
+    t->cache_key = DnsCache::key_of(msg, len);
 
+    if (cache_.enabled()) {
         std::vector<std::uint8_t> cached;
         if (cache_.lookup(t->cache_key, cached)) {
             cached[0] = msg[0];  // the client's transaction ID, not the cached one
@@ -90,6 +93,10 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
     stats_.inflight++;
     if (t->conn) t->conn->inflight++;
 
-    unsigned slot = next_.fetch_add(1, std::memory_order_relaxed);
+    // A key always goes to the same worker, which is where an identical query
+    // already in flight can be found.
+    std::size_t slot = t->cache_key.empty()
+                           ? next_.fetch_add(1, std::memory_order_relaxed)
+                           : std::hash<std::string>{}(t->cache_key);
     workers_[slot % workers_.size()]->submit(t.release());
 }

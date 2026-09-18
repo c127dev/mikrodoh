@@ -9,6 +9,7 @@
 
 #include <curl/curl.h>
 
+#include "coalesce.h"
 #include "config.h"
 #include "stats.h"
 #include "transfer.h"
@@ -39,6 +40,7 @@ private:
     void        reap();
     void        drain();
     void        finish(Transfer* t, bool ok);
+    void        answer(Transfer* t, const std::vector<std::uint8_t>* response);
     std::size_t pick_url(std::size_t from) const;
     void        mark_down(std::size_t url);
     void        mark_up(std::size_t url);
@@ -69,6 +71,10 @@ private:
     // The handles currently in multi_. curl cannot be asked what it is still
     // carrying, and shutdown has to answer and free every one of them.
     std::unordered_set<CURL*> active_;
+
+    // Identical queries share one upstream request. Dispatcher sends a given
+    // cache key to the same worker, so a per-worker table catches them.
+    Coalescer coalescer_;
 
     // Set once the loop has left: a failed transfer is answered rather than
     // retried against the next resolver.

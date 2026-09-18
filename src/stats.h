@@ -14,6 +14,8 @@ struct Stats {
     // Answered FORMERR because the datagram was larger than the read buffer.
     std::atomic<unsigned long> oversized{0};
     std::atomic<unsigned long> cache_hits{0};
+    // Answered from an identical query already in flight upstream.
+    std::atomic<unsigned long> coalesced{0};
     std::atomic<long>          tcp_conns{0};
 
     // One line: served, failed, rejected, dropped, throttled, in-flight, TCP connections

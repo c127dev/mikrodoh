@@ -19,6 +19,7 @@ add_executable(mikrodoh
     src/main.cpp
     src/net.cpp
     src/cache.cpp
+    src/coalesce.cpp
     src/config.cpp
     src/cpu.cpp
     src/dispatch.cpp

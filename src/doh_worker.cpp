@@ -174,10 +174,9 @@ void DohWorker::start(Transfer* t) {
 }
 
 void DohWorker::finish(Transfer* t, bool ok) {
-    if (ok) {
-        t->reply(t->response.data(), t->response.size());
-        stats_.served++;
+    std::vector<Transfer*> followers = coalescer_.release(t);
 
+    if (ok) {
         // An HTTP 200 only means the resolver answered. SERVFAIL and REFUSED
         // are transient or policy-driven, so they are not cached at all; a
         // negative answer is cached for a shorter time than a real one.
@@ -191,6 +190,25 @@ void DohWorker::finish(Transfer* t, bool ok) {
             else if (cfg_.cache_negative_ttl > 0)
                 cache_.store(t->cache_key, t->response, cfg_.cache_negative_ttl);
         }
+    }
+
+    const std::vector<std::uint8_t>* response = ok ? &t->response : nullptr;
+    for (Transfer* f : followers) {
+        stats_.coalesced++;
+        answer(f, response);
+    }
+    answer(t, response);
+}
+
+// Replies to `t` with `response` under its own transaction ID, or SERVFAIL
+// when `response` is null, then frees it.
+void DohWorker::answer(Transfer* t, const std::vector<std::uint8_t>* response) {
+    if (response && response->size() >= 2 && t->payload.size() >= 2) {
+        std::vector<std::uint8_t> out = *response;
+        out[0] = t->payload[0];
+        out[1] = t->payload[1];
+        t->reply(out.data(), out.size());
+        stats_.served++;
     } else {
         // Say so rather than staying silent: a client with no answer waits out
         // its own timeout before trying anything else.
@@ -312,7 +330,8 @@ void DohWorker::run(const std::atomic<bool>& stop) {
             std::lock_guard<std::mutex> lock(inbox_mutex_);
             batch.swap(inbox_);
         }
-        for (Transfer* t : batch) start(t);
+        for (Transfer* t : batch)
+            if (!coalescer_.join(t)) start(t);
         batch.clear();
 
         curl_multi_perform(multi_, &still_running);

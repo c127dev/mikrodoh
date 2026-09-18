@@ -14,7 +14,8 @@ void Stats::print(std::ostream& os) const {
        << " oversized=" << oversized.load(std::memory_order_relaxed)
        << " inflight=" << inflight.load(std::memory_order_relaxed)
        << " tcp_conns=" << tcp_conns.load(std::memory_order_relaxed)
-       << " cache_hits=" << hits << " hit_rate=";
+       << " cache_hits=" << hits
+       << " coalesced=" << coalesced.load(std::memory_order_relaxed) << " hit_rate=";
 
     if (ok == 0) os << "n/a";
     else         os << (hits * 100 / ok) << "%";
