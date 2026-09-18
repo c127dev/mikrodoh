@@ -19,6 +19,7 @@ find_package(Threads REQUIRED)
 add_executable(mikrodoh_tests
     harness.cpp
     test_cache.cpp
+    test_coalesce.cpp
     test_config.cpp
     test_dispatch.cpp
     test_dns.cpp
@@ -28,6 +29,7 @@ add_executable(mikrodoh_tests
     test_tcp_conn.cpp
 
     "${MIKRODOH_SRC}/src/cache.cpp"
+    "${MIKRODOH_SRC}/src/coalesce.cpp"
     "${MIKRODOH_SRC}/src/config.cpp"
     "${MIKRODOH_SRC}/src/cpu.cpp"
     "${MIKRODOH_SRC}/src/dispatch.cpp"
