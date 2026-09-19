@@ -223,6 +223,24 @@ End-to-end check, builds and resolves a name through the proxy on port 6353:
 ./scripts/test.sh
 ```
 
+## Health check
+
+A query for `health.mikrodoh.` is not forwarded as asked. The daemon sends the
+resolvers a query for the root NS set, past the cache, and answers NOERROR
+when one of them answers it, SERVFAIL when none does. An A query gets
+`127.0.0.1` with a TTL of 0.
+
+`mikrodoh --health` sends that query to the local listener, using the same
+`LISTEN_ADDR` and `LISTEN_PORT`, and exits 0 on NOERROR, 1 otherwise. It needs
+no other tool in the image:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=15s CMD ["/usr/bin/mikrodoh", "--health"]
+```
+
+A RouterOS netwatch probe of type `dns` asks for `health.mikrodoh`, record
+type A, against the proxy's address.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).

@@ -3,6 +3,7 @@
 #include <csignal>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -12,6 +13,7 @@
 #include "config.h"
 #include "dispatch.h"
 #include "doh_worker.h"
+#include "health.h"
 #include "privs.h"
 #include "sandbox.h"
 #include "server.h"
@@ -48,7 +50,10 @@ void stats_loop(const Config& cfg, const Stats& stats) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--health")
+        return health::run_probe(Config::from_env());
+
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
     const Config cfg = Config::from_env();

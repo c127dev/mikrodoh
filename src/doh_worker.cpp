@@ -2,6 +2,7 @@
 
 #include "cache.h"
 #include "dns.h"
+#include "health.h"
 
 #include <iostream>
 #include <string>
@@ -211,7 +212,14 @@ void DohWorker::finish(Transfer* t, bool ok) {
 // Replies to `t` with `response` under its own transaction ID, or SERVFAIL
 // when `response` is null, then frees it.
 void DohWorker::answer(Transfer* t, const std::vector<std::uint8_t>* response) {
-    if (response && response->size() >= 2 && t->payload.size() >= 2) {
+    if (!t->health_query.empty()) {
+        bool healthy = response &&
+                       dns::rcode(response->data(), response->size()) == dns::kRcodeNoError;
+        std::vector<std::uint8_t> out =
+            health::answer(t->health_query.data(), t->health_query.size(), healthy);
+        if (!out.empty()) t->reply(out.data(), out.size());
+        healthy ? stats_.served++ : stats_.failed++;
+    } else if (response && response->size() >= 2 && t->payload.size() >= 2) {
         std::vector<std::uint8_t> out = *response;
         out[0] = t->payload[0];
         out[1] = t->payload[1];

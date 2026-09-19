@@ -3,6 +3,7 @@
 #include "cache.h"
 #include "dns.h"
 #include "doh_worker.h"
+#include "health.h"
 
 #include <functional>
 #include <iostream>
@@ -54,11 +55,17 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
         return;
     }
 
-    // Computed with the cache off as well: identical in-flight queries are
-    // coalesced on it.
-    t->cache_key = DnsCache::key_of(msg, len);
+    // A health probe is forwarded as a probe of its own, past the cache: an
+    // answer from there says nothing about the resolvers. `msg` stays valid,
+    // the buffer moves with it.
+    if (health::is_probe(msg, len)) {
+        t->health_query = std::move(t->payload);
+        t->payload      = health::upstream_request(msg, len);
+    } else {
+        // Computed with the cache off as well: identical in-flight queries are
+        // coalesced on it.
+        t->cache_key = DnsCache::key_of(msg, len);
 
-    if (cache_.enabled()) {
         std::vector<std::uint8_t> cached;
         if (cache_.lookup(t->cache_key, cached)) {
             cached[0] = msg[0];  // the client's transaction ID, not the cached one

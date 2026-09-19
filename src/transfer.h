@@ -29,6 +29,10 @@ struct Transfer {
     // tail was never read.
     bool query_truncated = false;
 
+    // A health probe: `payload` is the upstream stand-in and this is the
+    // client's query, which the reply is built from. Empty otherwise.
+    std::vector<std::uint8_t> health_query;
+
     int                      udp_fd = -1;
     sockaddr_storage         client_addr{};
     socklen_t                addr_len = 0;

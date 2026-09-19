@@ -25,6 +25,7 @@ add_executable(mikrodoh
     src/dispatch.cpp
     src/dns.cpp
     src/doh_worker.cpp
+    src/health.cpp
     src/privs.cpp
     src/ratelimit.cpp
     src/sandbox.cpp
