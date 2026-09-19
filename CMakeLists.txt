@@ -23,6 +23,7 @@ add_executable(mikrodoh_tests
     test_config.cpp
     test_dispatch.cpp
     test_dns.cpp
+    test_health.cpp
     test_net.cpp
     test_ratelimit.cpp
     test_sandbox.cpp
@@ -34,6 +35,7 @@ add_executable(mikrodoh_tests
     "${MIKRODOH_SRC}/src/cpu.cpp"
     "${MIKRODOH_SRC}/src/dispatch.cpp"
     "${MIKRODOH_SRC}/src/dns.cpp"
+    "${MIKRODOH_SRC}/src/health.cpp"
     "${MIKRODOH_SRC}/src/net.cpp"
     "${MIKRODOH_SRC}/src/ratelimit.cpp"
     "${MIKRODOH_SRC}/src/sandbox.cpp"
