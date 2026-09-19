@@ -65,7 +65,7 @@ int main() {
     signal(SIGPIPE, SIG_IGN);
     signal(SIGUSR1, on_dump);
 
-    DnsCache cache(cfg.cache_ttl);
+    DnsCache cache(cfg.cache_ttl, 10000, cfg.serve_stale);
     Stats    stats;
 
     std::vector<std::unique_ptr<DohWorker>> workers;

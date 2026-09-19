@@ -193,6 +193,14 @@ void DohWorker::finish(Transfer* t, bool ok) {
     }
 
     const std::vector<std::uint8_t>* response = ok ? &t->response : nullptr;
+
+    // Every resolver failed. An expired answer keeps the LAN resolving through
+    // an uplink outage, where SERVFAIL would not.
+    std::vector<std::uint8_t> stale;
+    if (!ok && cache_.lookup_stale(t->cache_key, stale)) {
+        response = &stale;
+        stats_.stale += 1 + followers.size();
+    }
     for (Transfer* f : followers) {
         stats_.coalesced++;
         answer(f, response);

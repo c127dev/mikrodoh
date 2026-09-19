@@ -15,6 +15,7 @@ void Stats::print(std::ostream& os) const {
        << " inflight=" << inflight.load(std::memory_order_relaxed)
        << " tcp_conns=" << tcp_conns.load(std::memory_order_relaxed)
        << " cache_hits=" << hits
+       << " stale=" << stale.load(std::memory_order_relaxed)
        << " coalesced=" << coalesced.load(std::memory_order_relaxed) << " hit_rate=";
 
     if (ok == 0) os << "n/a";

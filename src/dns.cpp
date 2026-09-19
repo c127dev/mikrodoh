@@ -248,6 +248,10 @@ void age_ttls(std::uint8_t* msg, std::size_t len, std::uint32_t elapsed) {
     });
 }
 
+void set_ttls(std::uint8_t* msg, std::size_t len, std::uint32_t ttl) {
+    for_each_ttl(msg, len, [&](std::size_t at) { write32(msg + at, ttl); });
+}
+
 bool has_answers(const std::uint8_t* msg, std::size_t len) {
     if (len < kHeaderLen) return false;
     return (msg[6] << 8 | msg[7]) != 0;

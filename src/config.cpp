@@ -143,6 +143,8 @@ Config Config::from_env() {
 
     c.cache_negative_ttl = env_int("CACHE_NEGATIVE", c.cache_negative_ttl);
     if (c.cache_negative_ttl < 0) c.cache_negative_ttl = 0;
+    c.serve_stale = env_int("SERVE_STALE", c.serve_stale);
+    if (c.serve_stale < 0) c.serve_stale = 0;
 
     c.rcvbuf_kb      = env_int("RCVBUF_KB", c.rcvbuf_kb);
 
@@ -260,6 +262,8 @@ void Config::print(std::ostream& os) const {
        << "TCP keep-alive: " << tcp_keep_alive << "s\n"
        << "Cache TTL     : " << cache_ttl << "s\n"
        << "Cache neg TTL : " << cache_negative_ttl << "s\n"
+       << "Serve stale   : "
+       << (serve_stale > 0 ? std::to_string(serve_stale) + "s" : std::string("off")) << "\n"
        << "TCP           : " << (tcp_enabled ? "on" : "off") << ", max "
        << tcp_max_conns << " conns, " << tcp_idle_sec << "s idle\n"
        << "Run as        : "

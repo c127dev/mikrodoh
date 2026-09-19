@@ -30,6 +30,9 @@ struct Config {
     // Clamped to `cache_ttl`. RFC 2308 caps a negative TTL well below a
     // positive one, and an rcode other than these two is not cached at all.
     int         cache_negative_ttl = 60;
+    // Seconds an expired entry is kept to answer when every resolver fails
+    // (RFC 8767). 0 turns it off.
+    int         serve_stale = 86400;
     long        max_inflight       = 512;
     // Token bucket per source prefix, on top of the global in-flight cap.
     // 0 qps disables it, which is the default: the right rate depends on how

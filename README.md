@@ -110,6 +110,7 @@ supported device, in `--env-file` format.
 | `TCP_IDLE_SEC` | `10` | Close a TCP connection after this long with no query |
 | `CACHE` | `0` | Response TTL in seconds, `0` disables the cache |
 | `CACHE_NEGATIVE` | `60` | TTL for NXDOMAIN and empty answers, clamped to `CACHE`, `0` keeps them out of the cache. SERVFAIL and REFUSED are never cached |
+| `SERVE_STALE` | `86400` | Seconds an expired entry is kept to answer, with a 30s TTL, when every resolver fails (RFC 8767). `0` disables it |
 | `STATS_INTERVAL_SEC` | `300` | Seconds between stats lines, `0` disables them |
 | `RUN_AS_USER` | unset | User (name or uid) to switch to once the sockets are bound |
 | `RUN_AS_GROUP` | user's primary group | Group (name or gid) to switch to |

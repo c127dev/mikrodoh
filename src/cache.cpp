@@ -2,8 +2,8 @@
 
 #include "dns.h"
 
-DnsCache::DnsCache(int ttl_seconds, std::size_t max_entries)
-    : ttl_(ttl_seconds), max_entries_(max_entries) {}
+DnsCache::DnsCache(int ttl_seconds, std::size_t max_entries, int stale_seconds)
+    : ttl_(ttl_seconds), max_entries_(max_entries), stale_(stale_seconds > 0 ? stale_seconds : 0) {}
 
 std::string DnsCache::key_of(const std::uint8_t* packet, std::size_t len) {
     std::size_t end = dns::question_end(packet, len);
@@ -35,6 +35,23 @@ bool DnsCache::lookup(const std::string& key, std::vector<std::uint8_t>& out) co
     out = it->second.response;
     if (now > it->second.stored)
         dns::age_ttls(out.data(), out.size(), static_cast<std::uint32_t>(now - it->second.stored));
+    return true;
+}
+
+bool DnsCache::lookup_stale(const std::string& key, std::vector<std::uint8_t>& out) const {
+    if (!enabled() || stale_ == 0 || key.empty()) return false;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = entries_.find(key);
+    std::time_t now = std::time(nullptr);
+    if (it == entries_.end() || now < it->second.expires ||
+        now >= it->second.expires + stale_)
+        return false;
+
+    if (it->second.response.size() < 2) return false;
+
+    out = it->second.response;
+    dns::set_ttls(out.data(), out.size(), kStaleTtl);
     return true;
 }
 

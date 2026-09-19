@@ -11,7 +11,13 @@
 
 class DnsCache {
 public:
-    explicit DnsCache(int ttl_seconds, std::size_t max_entries = 10000);
+    // `stale_seconds` keeps an entry that long past its expiry for
+    // lookup_stale(); 0 drops it at expiry.
+    explicit DnsCache(int ttl_seconds, std::size_t max_entries = 10000,
+                      int stale_seconds = 0);
+
+    // RFC 8767 section 4: the TTL on a stale answer.
+    static constexpr std::uint32_t kStaleTtl = 30;
 
     bool enabled() const { return ttl_ > 0; }
 
@@ -23,6 +29,9 @@ public:
 
     // `out` has every record TTL lowered by the time the entry has spent here.
     bool lookup(const std::string& key, std::vector<std::uint8_t>& out) const;
+    // An entry past its expiry but within the stale window, with every record
+    // TTL set to kStaleTtl. For when no resolver answers.
+    bool lookup_stale(const std::string& key, std::vector<std::uint8_t>& out) const;
     // The entry lives for the lowest record TTL in `response`, capped by the
     // configured TTL. `ttl_override` above zero caps it further and never
     // extends it. A response whose lowest TTL is zero is not stored.
@@ -39,6 +48,7 @@ private:
 
     int         ttl_;
     std::size_t max_entries_;
+    int         stale_;
     // A lookup reorders `order_`, so both paths take the lock exclusively.
     mutable std::mutex                     mutex_;
     // Most recently used key first.
