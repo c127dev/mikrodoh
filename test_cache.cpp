@@ -233,3 +233,43 @@ TEST(lookup_lowers_record_ttls_by_the_time_cached) {
     CHECK(ttl_of(out) < 30);
     CHECK(ttl_of(out) >= 28);
 }
+
+TEST(lookup_stale_misses_while_the_entry_is_fresh) {
+    DnsCache cache(60, 10, 60);
+    cache.store("k", answer(30));
+
+    std::vector<std::uint8_t> out;
+    CHECK(!cache.lookup_stale("k", out));
+}
+
+TEST(lookup_stale_serves_an_expired_entry_with_the_stale_ttl) {
+    DnsCache cache(60, 10, 60);
+    cache.store("k", answer(1));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
+    std::vector<std::uint8_t> out;
+    CHECK(!cache.lookup("k", out));
+    CHECK(cache.lookup_stale("k", out));
+    CHECK(ttl_of(out) == static_cast<int>(DnsCache::kStaleTtl));
+}
+
+TEST(lookup_stale_misses_past_the_stale_window) {
+    DnsCache cache(60, 10, 1);
+    cache.store("k", answer(1));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2100));
+
+    std::vector<std::uint8_t> out;
+    CHECK(!cache.lookup_stale("k", out));
+}
+
+TEST(lookup_stale_is_off_without_a_stale_window) {
+    DnsCache cache(60, 10);
+    cache.store("k", answer(1));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
+    std::vector<std::uint8_t> out;
+    CHECK(!cache.lookup_stale("k", out));
+}

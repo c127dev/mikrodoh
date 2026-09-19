@@ -535,3 +535,11 @@ TEST(sanitize_edns_leaves_a_malformed_option_alone) {
     dns::sanitize_edns(q);
     CHECK(q == copy);
 }
+
+TEST(set_ttls_sets_every_ttl_but_opt) {
+    std::vector<std::uint8_t> r = with_a(with_a(query("example.com", 1, 0x8180), 300), 5);
+    r = with_opt(std::move(r), 1232);
+    dns::set_ttls(r.data(), r.size(), 30);
+    CHECK(dns::min_ttl(r.data(), r.size()) == 30);
+    CHECK(r[r.size() - 6] == 0 && r[r.size() - 3] == 0);  // OPT TTL untouched
+}
