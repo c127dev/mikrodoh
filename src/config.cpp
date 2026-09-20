@@ -6,9 +6,11 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdlib>
+#include <fstream>
 #include <string>
 #include <ostream>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -19,13 +21,26 @@ std::string lower(std::string s) {
     return s;
 }
 
+// CONFIG_FILE's entries while from_env() runs. Only one thread loads the
+// configuration at a time: main at startup, then the stats thread on SIGHUP.
+const std::unordered_map<std::string, std::string>* g_file = nullptr;
+
+// A key from CONFIG_FILE wins over the same key in the environment.
+const char* lookup(const char* name) {
+    if (g_file) {
+        auto it = g_file->find(name);
+        if (it != g_file->end()) return it->second.c_str();
+    }
+    return std::getenv(name);
+}
+
 std::string env_str(const char* name, const std::string& fallback) {
-    const char* v = std::getenv(name);
+    const char* v = lookup(name);
     return v && *v ? std::string(v) : fallback;
 }
 
 long env_long(const char* name, long fallback) {
-    const char* v = std::getenv(name);
+    const char* v = lookup(name);
     return v && *v ? std::atol(v) : fallback;
 }
 
@@ -34,7 +49,7 @@ int env_int(const char* name, int fallback) {
 }
 
 bool env_bool(const char* name, bool fallback) {
-    const char* v = std::getenv(name);
+    const char* v = lookup(name);
     if (!v || !*v) return fallback;
     std::string s = lower(v);
     return s == "1" || s == "true" || s == "yes" || s == "on";
@@ -44,6 +59,32 @@ std::string trim(const std::string& s) {
     std::size_t b = s.find_first_not_of(" \t");
     if (b == std::string::npos) return "";
     return s.substr(b, s.find_last_not_of(" \t") - b + 1);
+}
+
+// KEY=VALUE lines, the format of boards/*.conf: blank lines and # comments
+// skipped, an optional "export " and one pair of surrounding quotes removed.
+bool read_config_file(const std::string& path,
+                      std::unordered_map<std::string, std::string>& out) {
+    std::ifstream in(path);
+    if (!in) return false;
+
+    std::string line;
+    while (std::getline(in, line)) {
+        line = trim(line);
+        if (line.empty() || line[0] == '#') continue;
+        if (line.compare(0, 7, "export ") == 0) line = trim(line.substr(7));
+
+        std::size_t eq = line.find('=');
+        if (eq == std::string::npos || eq == 0) continue;
+
+        std::string value = trim(line.substr(eq + 1));
+        if (value.size() >= 2 && (value[0] == '"' || value[0] == '\'') &&
+            value.back() == value[0])
+            value = value.substr(1, value.size() - 2);
+
+        out[trim(line.substr(0, eq))] = value;
+    }
+    return true;
 }
 
 // "dns.example=1.1.1.1,dns.example=1.0.0.1,other=2606:4700::1111" into
@@ -95,6 +136,14 @@ const char* ip_version_name(IpVersion v) {
 
 Config Config::from_env() {
     Config c;
+
+    std::unordered_map<std::string, std::string> file;
+    const char* path = std::getenv("CONFIG_FILE");
+    if (path && *path) {
+        c.config_file = path;
+        if (read_config_file(c.config_file, file)) g_file = &file;
+        else c.load_error = "cannot read CONFIG_FILE " + c.config_file;
+    }
 
     c.listen_addr = env_str("LISTEN_ADDR", c.listen_addr);
     c.listen_port = env_int("LISTEN_PORT", env_int("PORT", c.listen_port));
@@ -193,6 +242,7 @@ Config Config::from_env() {
     c.prefer_chacha = c.cipher == CipherPref::ChaCha ||
                       (c.cipher == CipherPref::Auto && !cpu::has_aes());
 
+    g_file = nullptr;
     return c;
 }
 
@@ -231,6 +281,7 @@ bool Config::resolvers_reachable(std::ostream& err) const {
 void Config::print(std::ostream& os) const {
     os << "MikroDoH listening on " << join_host_port(listen_addr, listen_port)
        << " UDP" << (tcp_enabled ? "+TCP" : "") << "\n"
+       << (config_file.empty() ? std::string() : "Config file   : " + config_file + "\n")
        << "Resolver      : " << doh_urls.front() << " ("
        << ip_version_name(ip_version) << ")\n";
 

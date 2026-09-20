@@ -74,6 +74,12 @@ struct Config {
     // Resolved from `cipher` and, for Auto, the CPU AES probe.
     bool prefer_chacha = false;
 
+    // CONFIG_FILE, when set, is read at startup and again on SIGHUP. Its keys
+    // override the environment's.
+    std::string config_file;
+    // Set when CONFIG_FILE is set and cannot be read.
+    std::string load_error;
+
     static Config from_env();
     void print(std::ostream& os) const;
 

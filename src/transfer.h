@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 
 #include "tcp_conn.h"
+#include "upstream.h"
 
 // One outstanding DoH request. Lives from DohWorker::start() to CURLMSG_DONE.
 //
@@ -20,7 +21,10 @@ struct Transfer {
     std::vector<std::uint8_t> response;
     std::string               cache_key;
 
-    // Index into Config::doh_urls: the resolver this attempt uses. Bumped past
+    // The resolver list this query walks, fixed when it is first started.
+    std::shared_ptr<const Upstream> up;
+
+    // Index into `up->urls`: the resolver this attempt uses. Bumped past
     // each failure, and past any resolver in cooldown, until the list runs out.
     std::size_t url = 0;
 

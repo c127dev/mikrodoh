@@ -26,39 +26,33 @@ constexpr int kDrainTimeoutMs = 2000;
 
 }  // namespace
 
-DohWorker::DohWorker(const Config& cfg, DnsCache& cache, Stats& stats)
-    : cfg_(cfg), cache_(cache), stats_(stats), health_(cfg.doh_urls.size()) {
+DohWorker::DohWorker(const Config& cfg, DnsCache& cache, Stats& stats,
+                     UpstreamSource& upstream)
+    : cfg_(cfg), cache_(cache), stats_(stats), source_(upstream) {
+    refresh_upstream();
+
     multi_ = curl_multi_init();
     curl_multi_setopt(multi_, CURLMOPT_PIPELINING, CURLPIPE_MULTIPLEX);
     curl_multi_setopt(multi_, CURLMOPT_MAX_CONCURRENT_STREAMS, 1000L);
 
     headers_ = curl_slist_append(headers_, "Content-Type: application/dns-message");
     headers_ = curl_slist_append(headers_, "Accept: application/dns-message");
-
-    for (const std::string& entry : cfg.resolve_entries)
-        resolve_ = curl_slist_append(resolve_, entry.c_str());
 }
 
 DohWorker::~DohWorker() {
     for (CURL* h : idle_) curl_easy_cleanup(h);
     curl_slist_free_all(headers_);
-    curl_slist_free_all(resolve_);
     curl_multi_cleanup(multi_);
 
     for (Transfer* t : inbox_) delete t;
 }
 
 void DohWorker::configure(CURL* handle) const {
-    // The URL is not set here: a pooled handle can be reused for a different
-    // resolver, so start() sets it per transfer.
+    // The URL, timeouts and bootstrap addresses are not set here: a pooled
+    // handle outlives a reload, so start() sets them per transfer.
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers_);
     curl_easy_setopt(handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
-
-    // A resolver named by hostname is reached through this, not getaddrinfo:
-    // that lookup would be sent to whatever the box's resolver is, which is
-    // this daemon, and never complete.
-    if (resolve_) curl_easy_setopt(handle, CURLOPT_RESOLVE, resolve_);
 
     // Wait for the existing multiplexed connection instead of opening another,
     // which is what keeps every stream on one HTTP/2 connection.
@@ -69,29 +63,10 @@ void DohWorker::configure(CURL* handle) const {
                          cfg_.ip_version == IpVersion::V6 ? CURL_IPRESOLVE_V6
                                                           : CURL_IPRESOLVE_V4);
 
-    // Without these a stalled transfer holds its in-flight slot forever, and
-    // enough of them pin MAX_INFLIGHT with no recovery.
-    curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS,
-                     static_cast<long>(cfg_.request_timeout_ms));
-    curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS,
-                     static_cast<long>(cfg_.connect_timeout_ms));
-
     if (cfg_.prefer_chacha) {
         curl_easy_setopt(handle, CURLOPT_TLS13_CIPHERS, "TLS_CHACHA20_POLY1305_SHA256");
         curl_easy_setopt(handle, CURLOPT_SSL_CIPHER_LIST,
                          "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305");
-    }
-
-    if (!cfg_.check_cert) {
-        curl_easy_setopt(handle, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(handle, CURLOPT_SSL_VERIFYHOST, 0L);
-    }
-
-    if (cfg_.tcp_keep_alive > 0) {
-        long secs = cfg_.tcp_keep_alive;
-        curl_easy_setopt(handle, CURLOPT_TCP_KEEPALIVE, 1L);
-        curl_easy_setopt(handle, CURLOPT_TCP_KEEPIDLE, secs);
-        curl_easy_setopt(handle, CURLOPT_TCP_KEEPINTVL, secs);
     }
 }
 
@@ -115,48 +90,61 @@ void DohWorker::release(CURL* handle) {
     curl_easy_cleanup(handle);
 }
 
-std::size_t DohWorker::pick_url(std::size_t from) const {
-    std::size_t n = cfg_.doh_urls.size();
+void DohWorker::refresh_upstream() {
+    up_generation_ = source_.generation();
+    up_            = source_.get();
+    health_.assign(up_->urls.size(), Resolver{});
+}
+
+std::size_t DohWorker::pick_url(const Transfer* t) const {
+    if (t->up != up_) return t->url;
+
+    std::size_t n   = up_->urls.size();
     auto        now = std::chrono::steady_clock::now();
 
-    for (std::size_t i = from; i < n; i++)
+    for (std::size_t i = t->url; i < n; i++)
         if (health_[i].down_until <= now) return i;
 
     // Everything left is in cooldown. Send the query to the next one anyway
     // rather than fail it outright: that request is also the probe that ends
     // the cooldown.
-    return from;
+    return t->url;
 }
 
-void DohWorker::mark_down(std::size_t url) {
-    if (cfg_.resolver_cooldown_ms <= 0) return;
+void DohWorker::mark_down(const Transfer* t) {
+    if (t->up != up_ || up_->cooldown_ms <= 0) return;
 
-    Resolver& r = health_[url];
+    Resolver& r = health_[t->url];
     if (r.fails < 4) r.fails++;  // the backoff caps at 16x the base cooldown
 
     auto cooldown = std::chrono::milliseconds(
-        static_cast<long long>(cfg_.resolver_cooldown_ms) << (r.fails - 1));
+        static_cast<long long>(up_->cooldown_ms) << (r.fails - 1));
     r.down_until = std::chrono::steady_clock::now() + cooldown;
 
-    std::cerr << "resolver " << cfg_.doh_urls[url] << " marked down for "
+    std::cerr << "resolver " << up_->urls[t->url] << " marked down for "
               << cooldown.count() << "ms\n";
 }
 
-void DohWorker::mark_up(std::size_t url) {
-    Resolver& r = health_[url];
+void DohWorker::mark_up(const Transfer* t) {
+    if (t->up != up_) return;
+
+    Resolver& r = health_[t->url];
     if (r.fails == 0) return;
 
     r.fails      = 0;
     r.down_until = {};
-    std::cerr << "resolver " << cfg_.doh_urls[url] << " is answering again\n";
+    std::cerr << "resolver " << up_->urls[t->url] << " is answering again\n";
 }
 
 void DohWorker::start(Transfer* t) {
-    if (t->url >= cfg_.doh_urls.size()) {
+    if (!t->up) t->up = up_;
+
+    const Upstream& up = *t->up;
+    if (t->url >= up.urls.size()) {
         finish(t, false);
         return;
     }
-    t->url = pick_url(t->url);
+    t->url = pick_url(t);
 
     CURL* handle = acquire();
     if (!handle) {
@@ -165,7 +153,29 @@ void DohWorker::start(Transfer* t) {
     }
 
     t->response.clear();
-    curl_easy_setopt(handle, CURLOPT_URL, cfg_.doh_urls[t->url].c_str());
+    curl_easy_setopt(handle, CURLOPT_URL, up.urls[t->url].c_str());
+
+    // A resolver named by hostname is reached through this, not getaddrinfo:
+    // that lookup would be sent to whatever the box's resolver is, which is
+    // this daemon, and never complete. The list lives as long as `t->up`.
+    curl_easy_setopt(handle, CURLOPT_RESOLVE, up.resolve);
+
+    // Without these a stalled transfer holds its in-flight slot forever, and
+    // enough of them pin MAX_INFLIGHT with no recovery.
+    curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, static_cast<long>(up.request_timeout_ms));
+    curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS,
+                     static_cast<long>(up.connect_timeout_ms));
+
+    curl_easy_setopt(handle, CURLOPT_SSL_VERIFYPEER, up.check_cert ? 1L : 0L);
+    curl_easy_setopt(handle, CURLOPT_SSL_VERIFYHOST, up.check_cert ? 2L : 0L);
+
+    long keep_alive = up.tcp_keep_alive;
+    curl_easy_setopt(handle, CURLOPT_TCP_KEEPALIVE, keep_alive > 0 ? 1L : 0L);
+    if (keep_alive > 0) {
+        curl_easy_setopt(handle, CURLOPT_TCP_KEEPIDLE, keep_alive);
+        curl_easy_setopt(handle, CURLOPT_TCP_KEEPINTVL, keep_alive);
+    }
+
     curl_easy_setopt(handle, CURLOPT_POSTFIELDS, t->payload.data());
     curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, static_cast<long>(t->payload.size()));
     curl_easy_setopt(handle, CURLOPT_WRITEDATA, &t->response);
@@ -262,7 +272,7 @@ void DohWorker::reap() {
                                         t->response.data(), t->response.size());
 
         if (!ok)
-            std::cerr << "DoH transfer failed on " << cfg_.doh_urls[t->url]
+            std::cerr << "DoH transfer failed on " << t->up->urls[t->url]
                       << ": "
                       << (transferred ? "answer does not match the query"
                                       : curl_easy_strerror(msg->data.result))
@@ -272,9 +282,9 @@ void DohWorker::reap() {
         active_.erase(handle);
         release(handle);
 
-        ok ? mark_up(t->url) : mark_down(t->url);
+        ok ? mark_up(t) : mark_down(t);
 
-        if (!ok && !draining_ && t->url + 1 < cfg_.doh_urls.size()) {
+        if (!ok && !draining_ && t->url + 1 < t->up->urls.size()) {
             t->url++;
             start(t);
             continue;
@@ -342,6 +352,8 @@ void DohWorker::run(const std::atomic<bool>& stop) {
     std::vector<Transfer*> batch;
 
     while (!stop.load(std::memory_order_relaxed)) {
+        if (source_.generation() != up_generation_) refresh_upstream();
+
         {
             std::lock_guard<std::mutex> lock(inbox_mutex_);
             batch.swap(inbox_);

@@ -34,6 +34,7 @@ add_executable(mikrodoh
     src/tcp_conn.cpp
     src/tcp_server.cpp
     src/transfer.cpp
+    src/upstream.cpp
 )
 
 # The daemon parses untrusted network bytes.

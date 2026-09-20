@@ -13,6 +13,7 @@
 #include "config.h"
 #include "stats.h"
 #include "transfer.h"
+#include "upstream.h"
 
 class DnsCache;
 
@@ -21,7 +22,7 @@ class DnsCache;
 // than by thread count.
 class DohWorker {
 public:
-    DohWorker(const Config& cfg, DnsCache& cache, Stats& stats);
+    DohWorker(const Config& cfg, DnsCache& cache, Stats& stats, UpstreamSource& upstream);
     ~DohWorker();
 
     DohWorker(const DohWorker&)            = delete;
@@ -41,9 +42,10 @@ private:
     void        drain();
     void        finish(Transfer* t, bool ok);
     void        answer(Transfer* t, const std::vector<std::uint8_t>* response);
-    std::size_t pick_url(std::size_t from) const;
-    void        mark_down(std::size_t url);
-    void        mark_up(std::size_t url);
+    std::size_t pick_url(const Transfer* t) const;
+    void        mark_down(const Transfer* t);
+    void        mark_up(const Transfer* t);
+    void        refresh_upstream();
 
     const Config& cfg_;
     DnsCache&     cache_;
@@ -51,13 +53,17 @@ private:
 
     CURLM*             multi_   = nullptr;
     struct curl_slist* headers_ = nullptr;
-    // Config::resolve_entries as a curl list, empty when every resolver is an
-    // IP literal.
-    struct curl_slist* resolve_ = nullptr;
 
-    // What this loop has learnt about each entry of Config::doh_urls. It is
-    // per-worker and needs no locking: a dead resolver is found again by every
-    // worker at most once per cooldown.
+    // The snapshot new queries start with, picked up from `source_` when its
+    // generation moves.
+    UpstreamSource&                 source_;
+    std::shared_ptr<const Upstream> up_;
+    unsigned                        up_generation_ = 0;
+
+    // What this loop has learnt about each entry of `up_->urls`, reset on a
+    // reload. It is per-worker and needs no locking: a dead resolver is found
+    // again by every worker at most once per cooldown. A query still on an
+    // older snapshot does not touch it.
     struct Resolver {
         std::chrono::steady_clock::time_point down_until{};
         unsigned                              fails = 0;

@@ -114,6 +114,7 @@ supported device, in `--env-file` format.
 | `STATS_INTERVAL_SEC` | `300` | Seconds between stats lines, `0` disables them |
 | `RUN_AS_USER` | unset | User (name or uid) to switch to once the sockets are bound |
 | `RUN_AS_GROUP` | user's primary group | Group (name or gid) to switch to |
+| `CONFIG_FILE` | unset | `KEY=VALUE` file, the format of `boards/*.conf`, read at startup and on `SIGHUP`. Its keys override the environment's |
 | `SANDBOX` | `true` | Set `no_new_privs` and a seccomp filter after the switch |
 
 `RUN_AS_USER` only applies when the process starts as root, which is what
@@ -221,6 +222,23 @@ End-to-end check, builds and resolves a name through the proxy on port 6353:
 
 ```bash
 ./scripts/test.sh
+```
+
+## Reload
+
+`SIGHUP` re-reads `CONFIG_FILE` and the environment and applies the resolver
+settings without a restart: `DOH_URL`, `DOH_FAILOVER_URL_n`, `DOH_BOOTSTRAP`,
+`CONNECT_TIMEOUT_MS`, `REQUEST_TIMEOUT_MS`, `RESOLVER_COOLDOWN_MS`,
+`CHECK_CERT` and `TCP_KEEP_ALIVE`. The cache and the open upstream connections
+are kept, and queries already in flight finish on the list they started with.
+Every other key needs a restart.
+
+A file that cannot be read, or a resolver that would be refused at startup,
+is logged and the old settings stay. The file is read again after the switch
+to `RUN_AS_USER`, so that user has to be able to read it.
+
+```bash
+kill -HUP $(pidof mikrodoh)
 ```
 
 ## Health check
