@@ -14,6 +14,7 @@ endif()
 
 set(MIKRODOH_SANITIZE ON CACHE BOOL "Build the tests with ASan and UBSan")
 
+find_package(CURL REQUIRED)
 find_package(Threads REQUIRED)
 
 add_executable(mikrodoh_tests
@@ -28,6 +29,7 @@ add_executable(mikrodoh_tests
     test_ratelimit.cpp
     test_sandbox.cpp
     test_tcp_conn.cpp
+    test_upstream.cpp
 
     "${MIKRODOH_SRC}/src/cache.cpp"
     "${MIKRODOH_SRC}/src/coalesce.cpp"
@@ -41,11 +43,12 @@ add_executable(mikrodoh_tests
     "${MIKRODOH_SRC}/src/sandbox.cpp"
     "${MIKRODOH_SRC}/src/tcp_conn.cpp"
     "${MIKRODOH_SRC}/src/transfer.cpp"
+    "${MIKRODOH_SRC}/src/upstream.cpp"
 )
 
 target_include_directories(mikrodoh_tests PRIVATE "${MIKRODOH_SRC}/src")
 target_compile_options(mikrodoh_tests PRIVATE -g -O1 -Wall -Wextra)
-target_link_libraries(mikrodoh_tests PRIVATE Threads::Threads)
+target_link_libraries(mikrodoh_tests PRIVATE CURL::libcurl Threads::Threads)
 
 if(MIKRODOH_SANITIZE)
     target_compile_options(mikrodoh_tests PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)

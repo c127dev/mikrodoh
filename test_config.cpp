@@ -5,7 +5,11 @@
 #include <sstream>
 
 #include <cstdlib>
+#include <cstdio>
+#include <fstream>
 #include <string>
+
+#include <unistd.h>
 
 namespace {
 
@@ -18,7 +22,8 @@ const char* kKeys[] = {"LISTEN_ADDR",   "LISTEN_PORT",        "PORT",
                        "TCP_IDLE_SEC", "RESOLVER_COOLDOWN_MS",
                        "DOH_BOOTSTRAP", "UDP_READERS",
                        "RATE_LIMIT_QPS", "RATE_LIMIT_BURST",
-                       "RATE_LIMIT_V4_PREFIX", "RATE_LIMIT_V6_PREFIX"};
+                       "RATE_LIMIT_V4_PREFIX", "RATE_LIMIT_V6_PREFIX",
+                       "CONFIG_FILE"};
 
 // DOH_FAILOVER_URL_1.. are read until the first gap, so clear a few extra.
 const int kMaxFailoverKeys = 4;
@@ -298,4 +303,52 @@ TEST(a_negative_rate_limit_is_read_as_off) {
     Config c = Config::from_env();
     CHECK(c.rate_limit_qps == 0);
     CHECK(c.rate_limit_burst == 0);
+}
+
+namespace {
+
+std::string write_file(const std::string& body) {
+    char path[] = "/tmp/mikrodoh-config-XXXXXX";
+    int  fd     = mkstemp(path);
+    if (fd >= 0) close(fd);
+    std::ofstream(path) << body;
+    return path;
+}
+
+}  // namespace
+
+TEST(config_file_keys_override_the_environment) {
+    clear_env();
+    set("LISTEN_PORT", "5353");
+    set("DOH_URL", "https://9.9.9.9/dns-query");
+
+    std::string path = write_file("# a board file\n"
+                                  "\n"
+                                  "DOH_URL=https://1.0.0.1/dns-query\n"
+                                  "export CACHE=\"120\"\n"
+                                  "  TCP = 'false'\n");
+    set("CONFIG_FILE", path.c_str());
+
+    Config c = Config::from_env();
+    std::remove(path.c_str());
+
+    CHECK(c.load_error.empty());
+    CHECK(c.config_file == path);
+    CHECK(c.doh_urls.front() == "https://1.0.0.1/dns-query");
+    CHECK(c.cache_ttl == 120);
+    CHECK(!c.tcp_enabled);
+    CHECK(c.listen_port == 5353);  // not in the file, so the environment's
+}
+
+TEST(an_unreadable_config_file_is_an_error) {
+    clear_env();
+    set("CONFIG_FILE", "/nonexistent/mikrodoh.conf");
+    CHECK(!Config::from_env().load_error.empty());
+}
+
+TEST(without_a_config_file_there_is_no_error) {
+    clear_env();
+    Config c = Config::from_env();
+    CHECK(c.load_error.empty());
+    CHECK(c.config_file.empty());
 }

@@ -17,12 +17,19 @@
 
 // The shed path returns before it ever touches a worker, so the tests link
 // stubs instead of the curl event loop.
-DohWorker::DohWorker(const Config& cfg, DnsCache& cache, Stats& stats)
-    : cfg_(cfg), cache_(cache), stats_(stats) {}
+DohWorker::DohWorker(const Config& cfg, DnsCache& cache, Stats& stats,
+                     UpstreamSource& upstream)
+    : cfg_(cfg), cache_(cache), stats_(stats), source_(upstream) {}
 DohWorker::~DohWorker() = default;
 void DohWorker::submit(Transfer* t) { delete t; }
 
 namespace {
+
+// The stub never reads it.
+UpstreamSource& upstream() {
+    static UpstreamSource source(std::make_shared<const Upstream>(Config{}));
+    return source;
+}
 
 std::vector<std::uint8_t> query(const std::string& name) {
     std::vector<std::uint8_t> q{0x12, 0x34, 0x01, 0x00, 0x00, 0x01,
@@ -141,7 +148,7 @@ TEST(a_query_under_the_cap_is_not_shed) {
     Fixture f;
     f.cfg.max_inflight = 4;
     f.stats.inflight   = 3;
-    f.workers.push_back(std::make_unique<DohWorker>(f.cfg, f.cache, f.stats));
+    f.workers.push_back(std::make_unique<DohWorker>(f.cfg, f.cache, f.stats, upstream()));
 
     Pair p;
     f.dispatcher.dispatch(p.transfer(query("example.com")));
@@ -161,7 +168,7 @@ TEST(a_query_over_the_client_rate_is_answered_with_servfail) {
     DnsCache                                cache{0};
     Stats                                   stats;
     std::vector<std::unique_ptr<DohWorker>> workers;
-    workers.push_back(std::make_unique<DohWorker>(cfg, cache, stats));
+    workers.push_back(std::make_unique<DohWorker>(cfg, cache, stats, upstream()));
     Dispatcher dispatcher{cfg, cache, stats, workers};
 
     Pair                      p;
@@ -190,7 +197,7 @@ TEST(one_throttled_client_does_not_throttle_another) {
     DnsCache                                cache{0};
     Stats                                   stats;
     std::vector<std::unique_ptr<DohWorker>> workers;
-    workers.push_back(std::make_unique<DohWorker>(cfg, cache, stats));
+    workers.push_back(std::make_unique<DohWorker>(cfg, cache, stats, upstream()));
     Dispatcher dispatcher{cfg, cache, stats, workers};
 
     std::vector<std::uint8_t> q = query("example.com");
@@ -256,7 +263,7 @@ TEST(an_oversized_query_is_answered_with_formerr) {
     // query whose tail was never seen. Answering beats the silence that made
     // the client wait out its own timeout.
     Fixture f;
-    f.workers.push_back(std::make_unique<DohWorker>(f.cfg, f.cache, f.stats));
+    f.workers.push_back(std::make_unique<DohWorker>(f.cfg, f.cache, f.stats, upstream()));
 
     Pair                      p;
     std::vector<std::uint8_t> q = query("example.com");
