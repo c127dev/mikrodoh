@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
 
     const Config cfg = Config::from_env();
     if (!cfg.load_error.empty()) {
-        std::cerr << cfg.load_error << "\n";
+        std::cerr << "Invalid configuration: " << cfg.load_error << "\n";
         curl_global_cleanup();
         return 1;
     }

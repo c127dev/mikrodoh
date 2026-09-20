@@ -82,6 +82,11 @@ prediction of them.
 Every key is read from the environment. `boards/` holds ready-made sets, one per
 supported device, in `--env-file` format.
 
+A number has to be a whole decimal within the key's range, a boolean one of
+`1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off`, and `CIPHER` and
+`IP_VERSION` one of their listed values. Any other value stops startup with
+every bad key named, and makes a reload keep the old settings.
+
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `LISTEN_ADDR` | `0.0.0.0` | Address to bind, IPv4 or IPv6 literal |

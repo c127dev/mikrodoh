@@ -77,7 +77,8 @@ struct Config {
     // CONFIG_FILE, when set, is read at startup and again on SIGHUP. Its keys
     // override the environment's.
     std::string config_file;
-    // Set when CONFIG_FILE is set and cannot be read.
+    // Set when CONFIG_FILE cannot be read or a value is malformed or out of
+    // range. Startup stops, and a reload keeps the old settings.
     std::string load_error;
 
     static Config from_env();

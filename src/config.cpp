@@ -4,6 +4,7 @@
 #include "net.h"
 
 #include <cctype>
+#include <cerrno>
 #include <cstddef>
 #include <cstdlib>
 #include <fstream>
@@ -25,6 +26,13 @@ std::string lower(std::string s) {
 // configuration at a time: main at startup, then the stats thread on SIGHUP.
 const std::unordered_map<std::string, std::string>* g_file = nullptr;
 
+// What was wrong with the values read during the same from_env() call.
+std::vector<std::string>* g_errors = nullptr;
+
+void reject(const char* name, const char* value, const std::string& why) {
+    if (g_errors) g_errors->push_back(std::string(name) + "=" + value + ": " + why);
+}
+
 // A key from CONFIG_FILE wins over the same key in the environment.
 const char* lookup(const char* name) {
     if (g_file) {
@@ -39,20 +47,40 @@ std::string env_str(const char* name, const std::string& fallback) {
     return v && *v ? std::string(v) : fallback;
 }
 
-long env_long(const char* name, long fallback) {
+// A whole decimal integer within [min, max]. Anything else is rejected and
+// `fallback` returned, so the caller still has a usable value to report with.
+long env_long(const char* name, long fallback, long min, long max) {
     const char* v = lookup(name);
-    return v && *v ? std::atol(v) : fallback;
+    if (!v || !*v) return fallback;
+
+    char* end = nullptr;
+    errno     = 0;
+    long n    = std::strtol(v, &end, 10);
+    if (end == v || *end != '\0' || errno == ERANGE) {
+        reject(name, v, "not an integer");
+        return fallback;
+    }
+    if (n < min || n > max) {
+        reject(name, v, "out of range " + std::to_string(min) + ".." + std::to_string(max));
+        return fallback;
+    }
+    return n;
 }
 
-int env_int(const char* name, int fallback) {
-    return static_cast<int>(env_long(name, fallback));
+int env_int(const char* name, int fallback, int min, int max) {
+    return static_cast<int>(env_long(name, fallback, min, max));
 }
 
 bool env_bool(const char* name, bool fallback) {
     const char* v = lookup(name);
     if (!v || !*v) return fallback;
+
     std::string s = lower(v);
-    return s == "1" || s == "true" || s == "yes" || s == "on";
+    if (s == "1" || s == "true" || s == "yes" || s == "on") return true;
+    if (s == "0" || s == "false" || s == "no" || s == "off") return false;
+
+    reject(name, v, "not a boolean");
+    return fallback;
 }
 
 std::string trim(const std::string& s) {
@@ -137,6 +165,9 @@ const char* ip_version_name(IpVersion v) {
 Config Config::from_env() {
     Config c;
 
+    std::vector<std::string> errors;
+    g_errors = &errors;
+
     std::unordered_map<std::string, std::string> file;
     const char* path = std::getenv("CONFIG_FILE");
     if (path && *path) {
@@ -146,7 +177,7 @@ Config Config::from_env() {
     }
 
     c.listen_addr = env_str("LISTEN_ADDR", c.listen_addr);
-    c.listen_port = env_int("LISTEN_PORT", env_int("PORT", c.listen_port));
+    c.listen_port = env_int("LISTEN_PORT", env_int("PORT", c.listen_port, 1, 65535), 1, 65535);
     c.doh_urls.assign(1, env_str("DOH_URL", c.doh_urls.front()));
     for (int i = 1;; i++) {
         std::string key = "DOH_FAILOVER_URL_" + std::to_string(i);
@@ -177,64 +208,59 @@ Config Config::from_env() {
         }
     }
 
-    c.workers = env_int("WORKERS", 0);
+    c.workers = env_int("WORKERS", 0, 0, 1024);
     if (c.workers < 1) {
         unsigned hc = std::thread::hardware_concurrency();
         c.workers = hc > 0 ? static_cast<int>(hc) : 4;
     }
 
-    c.udp_readers = env_int("UDP_READERS", 0);
+    c.udp_readers = env_int("UDP_READERS", 0, 0, 1024);
     if (c.udp_readers < 1) c.udp_readers = c.workers;
 
     c.check_cert     = env_bool("CHECK_CERT", c.check_cert);
-    c.tcp_keep_alive = env_int("TCP_KEEP_ALIVE", c.tcp_keep_alive);
-    c.cache_ttl      = env_int("CACHE", c.cache_ttl);
+    c.tcp_keep_alive = env_int("TCP_KEEP_ALIVE", c.tcp_keep_alive, 0, 86400);
+    c.cache_ttl      = env_int("CACHE", c.cache_ttl, 0, 604800);
 
-    c.cache_negative_ttl = env_int("CACHE_NEGATIVE", c.cache_negative_ttl);
-    if (c.cache_negative_ttl < 0) c.cache_negative_ttl = 0;
-    c.serve_stale = env_int("SERVE_STALE", c.serve_stale);
-    if (c.serve_stale < 0) c.serve_stale = 0;
+    c.cache_negative_ttl = env_int("CACHE_NEGATIVE", c.cache_negative_ttl, 0, 86400);
+    c.serve_stale = env_int("SERVE_STALE", c.serve_stale, 0, 604800);
 
-    c.rcvbuf_kb      = env_int("RCVBUF_KB", c.rcvbuf_kb);
+    c.rcvbuf_kb      = env_int("RCVBUF_KB", c.rcvbuf_kb, 1, 1048576);
 
-    c.connect_timeout_ms = env_int("CONNECT_TIMEOUT_MS", c.connect_timeout_ms);
-    c.request_timeout_ms = env_int("REQUEST_TIMEOUT_MS", c.request_timeout_ms);
+    c.connect_timeout_ms = env_int("CONNECT_TIMEOUT_MS", c.connect_timeout_ms, 1, 600000);
+    c.request_timeout_ms = env_int("REQUEST_TIMEOUT_MS", c.request_timeout_ms, 1, 600000);
 
-    c.resolver_cooldown_ms = env_int("RESOLVER_COOLDOWN_MS", c.resolver_cooldown_ms);
-    if (c.resolver_cooldown_ms < 0) c.resolver_cooldown_ms = 0;
+    c.resolver_cooldown_ms = env_int("RESOLVER_COOLDOWN_MS", c.resolver_cooldown_ms, 0, 3600000);
 
     c.run_as_user  = env_str("RUN_AS_USER", c.run_as_user);
     c.run_as_group = env_str("RUN_AS_GROUP", c.run_as_group);
     c.sandbox      = env_bool("SANDBOX", c.sandbox);
 
-    c.stats_interval_sec = env_int("STATS_INTERVAL_SEC", c.stats_interval_sec);
-    if (c.stats_interval_sec < 0) c.stats_interval_sec = 0;
+    c.stats_interval_sec = env_int("STATS_INTERVAL_SEC", c.stats_interval_sec, 0, 86400);
 
     c.tcp_enabled   = env_bool("TCP", c.tcp_enabled);
-    c.tcp_max_conns = env_int("TCP_MAX_CONNS", c.tcp_max_conns);
-    c.tcp_idle_sec  = env_int("TCP_IDLE_SEC", c.tcp_idle_sec);
+    c.tcp_max_conns = env_int("TCP_MAX_CONNS", c.tcp_max_conns, 1, 65535);
+    c.tcp_idle_sec  = env_int("TCP_IDLE_SEC", c.tcp_idle_sec, 1, 3600);
 
-    c.max_inflight = env_long("MAX_INFLIGHT", c.max_inflight);
-    if (c.max_inflight < 1) c.max_inflight = 1;
+    c.max_inflight = env_long("MAX_INFLIGHT", c.max_inflight, 1, 1000000);
 
-    c.rate_limit_qps   = env_long("RATE_LIMIT_QPS", c.rate_limit_qps);
-    c.rate_limit_burst = env_long("RATE_LIMIT_BURST", c.rate_limit_burst);
-    if (c.rate_limit_qps < 0) c.rate_limit_qps = 0;
-    if (c.rate_limit_burst < 0) c.rate_limit_burst = 0;
-    c.rate_limit_v4_prefix = env_int("RATE_LIMIT_V4_PREFIX", c.rate_limit_v4_prefix);
-    c.rate_limit_v6_prefix = env_int("RATE_LIMIT_V6_PREFIX", c.rate_limit_v6_prefix);
+    c.rate_limit_qps   = env_long("RATE_LIMIT_QPS", c.rate_limit_qps, 0, 10000000);
+    c.rate_limit_burst = env_long("RATE_LIMIT_BURST", c.rate_limit_burst, 0, 10000000);
+    c.rate_limit_v4_prefix = env_int("RATE_LIMIT_V4_PREFIX", c.rate_limit_v4_prefix, 0, 32);
+    c.rate_limit_v6_prefix = env_int("RATE_LIMIT_V6_PREFIX", c.rate_limit_v6_prefix, 0, 128);
 
     c.ipv6_v6only = env_bool("IPV6_V6ONLY", c.ipv6_v6only);
 
     std::string ipv = lower(env_str("IP_VERSION", "auto"));
     if (ipv == "4" || ipv == "ipv4") c.ip_version = IpVersion::V4;
     else if (ipv == "6" || ipv == "ipv6") c.ip_version = IpVersion::V6;
-    else c.ip_version = IpVersion::Any;
+    else if (ipv == "auto" || ipv == "any") c.ip_version = IpVersion::Any;
+    else reject("IP_VERSION", ipv.c_str(), "not one of auto, ipv4, ipv6");
 
     std::string pref = lower(env_str("CIPHER", "auto"));
     if (pref == "chacha" || pref == "chacha20") c.cipher = CipherPref::ChaCha;
     else if (pref == "aes" || pref == "aes-gcm") c.cipher = CipherPref::Aes;
-    else c.cipher = CipherPref::Auto;
+    else if (pref == "auto") c.cipher = CipherPref::Auto;
+    else reject("CIPHER", pref.c_str(), "not one of auto, chacha, aes");
 
     // Without an AES engine the TLS record layer runs AES-GCM in software,
     // which is the DoH throughput ceiling on such CPUs. ChaCha20-Poly1305 is
@@ -242,7 +268,11 @@ Config Config::from_env() {
     c.prefer_chacha = c.cipher == CipherPref::ChaCha ||
                       (c.cipher == CipherPref::Auto && !cpu::has_aes());
 
-    g_file = nullptr;
+    g_file   = nullptr;
+    g_errors = nullptr;
+
+    for (const std::string& e : errors)
+        c.load_error += (c.load_error.empty() ? "" : "; ") + e;
     return c;
 }
 
