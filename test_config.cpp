@@ -23,7 +23,9 @@ const char* kKeys[] = {"LISTEN_ADDR",   "LISTEN_PORT",        "PORT",
                        "DOH_BOOTSTRAP", "UDP_READERS",
                        "RATE_LIMIT_QPS", "RATE_LIMIT_BURST",
                        "RATE_LIMIT_V4_PREFIX", "RATE_LIMIT_V6_PREFIX",
-                       "CONFIG_FILE"};
+                       "CONFIG_FILE", "CACHE_NEGATIVE", "SERVE_STALE",
+                       "STATS_INTERVAL_SEC", "IP_VERSION", "SANDBOX",
+                       "IPV6_V6ONLY"};
 
 // DOH_FAILOVER_URL_1.. are read until the first gap, so clear a few extra.
 const int kMaxFailoverKeys = 4;
@@ -61,12 +63,12 @@ TEST(workers_defaults_to_at_least_one) {
     clear_env();
     CHECK(Config::from_env().workers >= 1);
 
-    // A nonsense value falls back rather than starting zero threads.
+    // 0 means one per CPU rather than zero threads.
     set("WORKERS", "0");
     CHECK(Config::from_env().workers >= 1);
 
     set("WORKERS", "-4");
-    CHECK(Config::from_env().workers >= 1);
+    CHECK(!Config::from_env().load_error.empty());
 }
 
 TEST(udp_readers_defaults_to_the_worker_count) {
@@ -74,12 +76,12 @@ TEST(udp_readers_defaults_to_the_worker_count) {
     set("WORKERS", "3");
     CHECK(Config::from_env().udp_readers == 3);
 
-    // A nonsense value falls back rather than binding no socket at all.
+    // 0 means the worker count rather than binding no socket at all.
     set("UDP_READERS", "0");
     CHECK(Config::from_env().udp_readers == 3);
 
     set("UDP_READERS", "-2");
-    CHECK(Config::from_env().udp_readers == 3);
+    CHECK(!Config::from_env().load_error.empty());
 }
 
 TEST(udp_readers_can_be_set_apart_from_the_worker_count) {
@@ -110,10 +112,13 @@ TEST(booleans_accept_the_usual_spellings) {
         CHECK(Config::from_env().check_cert);
     }
 
-    for (const char* no : {"0", "false", "no", "off", "anything else"}) {
+    for (const char* no : {"0", "false", "no", "off"}) {
         set("CHECK_CERT", no);
         CHECK(!Config::from_env().check_cert);
     }
+
+    set("CHECK_CERT", "anything else");
+    CHECK(!Config::from_env().load_error.empty());
 }
 
 TEST(an_empty_value_is_treated_as_unset) {
@@ -122,13 +127,13 @@ TEST(an_empty_value_is_treated_as_unset) {
     CHECK(Config::from_env().doh_urls.front() == "https://1.1.1.1/dns-query");
 }
 
-TEST(max_inflight_never_drops_below_one) {
+TEST(max_inflight_below_one_is_rejected) {
     clear_env();
     set("MAX_INFLIGHT", "0");
-    CHECK(Config::from_env().max_inflight == 1);
+    CHECK(!Config::from_env().load_error.empty());
 
     set("MAX_INFLIGHT", "-9");
-    CHECK(Config::from_env().max_inflight == 1);
+    CHECK(!Config::from_env().load_error.empty());
 }
 
 TEST(cipher_chacha_is_selected_whatever_the_cpu_is) {
@@ -190,9 +195,12 @@ TEST(the_failover_list_stops_at_the_first_gap) {
     CHECK(c.doh_urls.size() == 1);
 }
 
-TEST(a_negative_resolver_cooldown_turns_the_tracking_off) {
+TEST(a_negative_resolver_cooldown_is_rejected) {
     clear_env();
     set("RESOLVER_COOLDOWN_MS", "-1");
+    CHECK(!Config::from_env().load_error.empty());
+
+    set("RESOLVER_COOLDOWN_MS", "0");
     CHECK(Config::from_env().resolver_cooldown_ms == 0);
 
     set("RESOLVER_COOLDOWN_MS", "5000");
@@ -351,4 +359,56 @@ TEST(without_a_config_file_there_is_no_error) {
     Config c = Config::from_env();
     CHECK(c.load_error.empty());
     CHECK(c.config_file.empty());
+}
+
+TEST(a_valid_environment_has_no_error) {
+    clear_env();
+    set("LISTEN_PORT", "5353");
+    set("CACHE", "300");
+    set("TCP", "off");
+    set("CIPHER", "aes");
+    set("IP_VERSION", "ipv6");
+    CHECK(Config::from_env().load_error.empty());
+}
+
+TEST(garbage_in_a_number_is_rejected) {
+    for (const char* bad : {"abc", "12abc", "1.5", " ", "99999999999999999999"}) {
+        clear_env();
+        set("CONNECT_TIMEOUT_MS", bad);
+        Config c = Config::from_env();
+        CHECK(!c.load_error.empty());
+        CHECK(c.connect_timeout_ms == 3000);  // the default is kept
+    }
+}
+
+TEST(a_number_out_of_range_is_rejected) {
+    const char* cases[][2] = {{"LISTEN_PORT", "0"},       {"LISTEN_PORT", "65536"},
+                              {"RCVBUF_KB", "-1"},        {"REQUEST_TIMEOUT_MS", "0"},
+                              {"CACHE_NEGATIVE", "-5"},   {"SERVE_STALE", "-1"},
+                              {"RATE_LIMIT_V4_PREFIX", "33"}, {"RATE_LIMIT_V6_PREFIX", "129"},
+                              {"TCP_IDLE_SEC", "0"},      {"STATS_INTERVAL_SEC", "-1"}};
+    for (auto& kv : cases) {
+        clear_env();
+        set(kv[0], kv[1]);
+        CHECK(Config::from_env().load_error.find(kv[0]) != std::string::npos);
+    }
+}
+
+TEST(an_unknown_cipher_or_ip_version_is_rejected) {
+    clear_env();
+    set("CIPHER", "rc4");
+    CHECK(!Config::from_env().load_error.empty());
+
+    clear_env();
+    set("IP_VERSION", "5");
+    CHECK(!Config::from_env().load_error.empty());
+}
+
+TEST(every_bad_key_is_reported) {
+    clear_env();
+    set("WORKERS", "x");
+    set("TCP", "maybe");
+    std::string err = Config::from_env().load_error;
+    CHECK(err.find("WORKERS") != std::string::npos);
+    CHECK(err.find("TCP") != std::string::npos);
 }
