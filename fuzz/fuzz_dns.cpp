@@ -6,6 +6,7 @@
 #include "dns.h"
 #include "health.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -75,6 +76,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         if (valid) {
             require(dns::query_valid(clean.data(), clean.size()));
             require(dns::udp_limit(clean.data(), clean.size()).bytes == limit.bytes);
+            // DNSSEC passthrough: DO in the OPT record, CD and the rest of
+            // the header ahead of the counts.
+            require(dns::udp_limit(clean.data(), clean.size()).dnssec_ok == limit.dnssec_ok);
+            require(std::equal(m.begin(), m.begin() + 10, clean.begin()));
             if (clean != m) require(clean.size() % 128 == 0);
         }
 

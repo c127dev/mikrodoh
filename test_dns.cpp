@@ -555,3 +555,55 @@ TEST(clamp_ttls_raises_and_lowers_every_ttl_but_opt) {
     CHECK(dns::min_ttl(r.data(), r.size()) == 3600);
     CHECK(r[r.size() - 6] == 0 && r[r.size() - 3] == 0);  // OPT TTL untouched
 }
+
+namespace {
+
+// with_options() with the DO bit, EDNS version and extended RCODE set in the
+// OPT TTL, and CD and AD set in the header.
+std::vector<std::uint8_t> dnssec_query(const std::vector<std::uint8_t>& options) {
+    std::vector<std::uint8_t> q = with_options(query("example.com"), options);
+    std::size_t               opt_at = query("example.com").size();
+
+    q[3] = static_cast<std::uint8_t>(q[3] | 0x30);  // AD, CD
+    q[opt_at + 5] = 0x00;                           // extended RCODE
+    q[opt_at + 6] = 0x00;                           // version
+    q[opt_at + 7] = 0x80;                           // DO
+    return q;
+}
+
+}  // namespace
+
+TEST(sanitize_edns_keeps_the_do_bit) {
+    std::vector<std::uint8_t> q = dnssec_query(kEcs);
+    CHECK(dns::udp_limit(q.data(), q.size()).dnssec_ok);
+
+    dns::sanitize_edns(q);
+    CHECK(dns::udp_limit(q.data(), q.size()).dnssec_ok);
+}
+
+TEST(sanitize_edns_keeps_the_header_flags) {
+    std::vector<std::uint8_t> q    = dnssec_query(kEcs);
+    std::vector<std::uint8_t> copy = q;
+
+    dns::sanitize_edns(q);
+    CHECK(std::equal(copy.begin(), copy.begin() + 10, q.begin()));  // up to ARCOUNT
+    CHECK(q[3] & 0x10);                                             // CD
+}
+
+TEST(sanitize_edns_keeps_the_rest_of_the_opt_record) {
+    std::vector<std::uint8_t> q      = dnssec_query(kEcs);
+    std::size_t               opt_at = query("example.com").size();
+    std::vector<std::uint8_t> fixed(q.begin() + static_cast<std::ptrdiff_t>(opt_at),
+                                    q.begin() + static_cast<std::ptrdiff_t>(opt_at + 9));
+
+    dns::sanitize_edns(q);
+    // Owner, TYPE, CLASS (payload size) and TTL (extended RCODE, version, DO).
+    CHECK(std::equal(fixed.begin(), fixed.end(), q.begin() + static_cast<std::ptrdiff_t>(opt_at)));
+}
+
+TEST(sanitize_edns_keeps_the_do_bit_without_ecs) {
+    std::vector<std::uint8_t> q = dnssec_query(kCookie);
+    dns::sanitize_edns(q);
+    CHECK(dns::udp_limit(q.data(), q.size()).dnssec_ok);
+    CHECK(q[3] & 0x10);
+}
