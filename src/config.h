@@ -30,6 +30,10 @@ struct Config {
     // Clamped to `cache_ttl`. RFC 2308 caps a negative TTL well below a
     // positive one, and an rcode other than these two is not cached at all.
     int         cache_negative_ttl = 60;
+    // Record TTLs in a cached answer are clamped to [cache_min_ttl,
+    // cache_max_ttl]. A max of 0 means `cache_ttl`, which bounds it anyway.
+    int         cache_min_ttl = 0;
+    int         cache_max_ttl = 0;
     // Seconds an expired entry is kept to answer when every resolver fails
     // (RFC 8767). 0 turns it off.
     int         serve_stale = 86400;

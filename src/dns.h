@@ -77,6 +77,10 @@ long min_ttl(const std::uint8_t* msg, std::size_t len);
 // message that does not parse is left as far as the walk got.
 void age_ttls(std::uint8_t* msg, std::size_t len, std::uint32_t elapsed);
 
+// Every TTL but OPT's raised to `min` and lowered to `max`. A message that
+// does not parse is left as far as the walk got.
+void clamp_ttls(std::uint8_t* msg, std::size_t len, std::uint32_t min, std::uint32_t max);
+
 // Every TTL but OPT's set to `ttl`. A message that does not parse is left as
 // far as the walk got.
 void set_ttls(std::uint8_t* msg, std::size_t len, std::uint32_t ttl);

@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
     signal(SIGUSR1, on_dump);
     signal(SIGHUP, on_reload);
 
-    DnsCache cache(cfg.cache_ttl, 10000, cfg.serve_stale);
+    DnsCache cache(cfg.cache_ttl, 10000, cfg.serve_stale, cfg.cache_min_ttl, cfg.cache_max_ttl);
     Stats    stats;
 
     UpstreamSource upstream(std::make_shared<const Upstream>(cfg));

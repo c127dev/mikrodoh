@@ -248,6 +248,16 @@ void age_ttls(std::uint8_t* msg, std::size_t len, std::uint32_t elapsed) {
     });
 }
 
+void clamp_ttls(std::uint8_t* msg, std::size_t len, std::uint32_t min, std::uint32_t max) {
+    for_each_ttl(msg, len, [&](std::size_t at) {
+        std::uint32_t ttl = read32(msg + at);
+        if (ttl > 0x7FFFFFFF) ttl = 0;
+        if (ttl < min) ttl = min;
+        if (ttl > max) ttl = max;
+        write32(msg + at, ttl);
+    });
+}
+
 void set_ttls(std::uint8_t* msg, std::size_t len, std::uint32_t ttl) {
     for_each_ttl(msg, len, [&](std::size_t at) { write32(msg + at, ttl); });
 }

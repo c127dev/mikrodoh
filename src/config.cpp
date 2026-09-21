@@ -222,6 +222,11 @@ Config Config::from_env() {
     c.cache_ttl      = env_int("CACHE", c.cache_ttl, 0, 604800);
 
     c.cache_negative_ttl = env_int("CACHE_NEGATIVE", c.cache_negative_ttl, 0, 86400);
+    c.cache_min_ttl = env_int("CACHE_MIN_TTL", c.cache_min_ttl, 0, 86400);
+    c.cache_max_ttl = env_int("CACHE_MAX_TTL", c.cache_max_ttl, 0, 604800);
+    if (c.cache_max_ttl > 0 && c.cache_min_ttl > c.cache_max_ttl)
+        reject("CACHE_MIN_TTL", std::to_string(c.cache_min_ttl).c_str(),
+               "above CACHE_MAX_TTL");
     c.serve_stale = env_int("SERVE_STALE", c.serve_stale, 0, 604800);
 
     c.rcvbuf_kb      = env_int("RCVBUF_KB", c.rcvbuf_kb, 1, 1048576);
@@ -343,6 +348,8 @@ void Config::print(std::ostream& os) const {
        << "TCP keep-alive: " << tcp_keep_alive << "s\n"
        << "Cache TTL     : " << cache_ttl << "s\n"
        << "Cache neg TTL : " << cache_negative_ttl << "s\n"
+       << "TTL clamp     : " << cache_min_ttl << "s.."
+       << (cache_max_ttl > 0 ? std::to_string(cache_max_ttl) + "s" : std::string("CACHE")) << "\n"
        << "Serve stale   : "
        << (serve_stale > 0 ? std::to_string(serve_stale) + "s" : std::string("off")) << "\n"
        << "TCP           : " << (tcp_enabled ? "on" : "off") << ", max "

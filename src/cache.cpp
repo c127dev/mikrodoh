@@ -2,8 +2,15 @@
 
 #include "dns.h"
 
-DnsCache::DnsCache(int ttl_seconds, std::size_t max_entries, int stale_seconds)
-    : ttl_(ttl_seconds), max_entries_(max_entries), stale_(stale_seconds > 0 ? stale_seconds : 0) {}
+DnsCache::DnsCache(int ttl_seconds, std::size_t max_entries, int stale_seconds, int min_ttl,
+                   int max_ttl)
+    : ttl_(ttl_seconds),
+      max_entries_(max_entries),
+      stale_(stale_seconds > 0 ? stale_seconds : 0),
+      min_ttl_(min_ttl > 0 ? min_ttl : 0),
+      max_ttl_(max_ttl > 0 && max_ttl < ttl_seconds ? max_ttl : ttl_seconds) {
+    if (min_ttl_ > max_ttl_) min_ttl_ = max_ttl_;
+}
 
 std::string DnsCache::key_of(const std::uint8_t* packet, std::size_t len) {
     std::size_t end = dns::question_end(packet, len);
@@ -62,7 +69,11 @@ void DnsCache::store(const std::string& key, const std::vector<std::uint8_t>& re
     int ttl = ttl_;
     if (ttl_override > 0 && ttl_override < ttl) ttl = ttl_override;
 
-    long lowest = dns::min_ttl(response.data(), response.size());
+    std::vector<std::uint8_t> clamped(response);
+    dns::clamp_ttls(clamped.data(), clamped.size(), static_cast<std::uint32_t>(min_ttl_),
+                    static_cast<std::uint32_t>(max_ttl_));
+
+    long lowest = dns::min_ttl(clamped.data(), clamped.size());
     if (lowest == 0) return;
     if (lowest > 0 && lowest < ttl) ttl = static_cast<int>(lowest);
 
@@ -72,7 +83,7 @@ void DnsCache::store(const std::string& key, const std::vector<std::uint8_t>& re
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = entries_.find(key);
     if (it != entries_.end()) {
-        it->second.response = response;
+        it->second.response = std::move(clamped);
         it->second.stored   = now;
         it->second.expires  = expires;
         order_.splice(order_.begin(), order_, it->second.order);
@@ -86,5 +97,5 @@ void DnsCache::store(const std::string& key, const std::vector<std::uint8_t>& re
     }
 
     order_.push_front(key);
-    entries_.emplace(key, Entry{response, now, expires, order_.begin()});
+    entries_.emplace(key, Entry{std::move(clamped), now, expires, order_.begin()});
 }
