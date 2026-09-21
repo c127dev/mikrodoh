@@ -65,6 +65,11 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         dns::set_ttls(set.data(), set.size(), 30);
         require(ttl < 0 || dns::min_ttl(set.data(), set.size()) == 30);
 
+        std::vector<std::uint8_t> clamped(m);
+        dns::clamp_ttls(clamped.data(), clamped.size(), 60, 3600);
+        long clamped_ttl = dns::min_ttl(clamped.data(), clamped.size());
+        require(ttl < 0 || (clamped_ttl >= 60 && clamped_ttl <= 3600));
+
         std::vector<std::uint8_t> clean(m);
         dns::sanitize_edns(clean);
         if (valid) {

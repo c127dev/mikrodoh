@@ -543,3 +543,15 @@ TEST(set_ttls_sets_every_ttl_but_opt) {
     CHECK(dns::min_ttl(r.data(), r.size()) == 30);
     CHECK(r[r.size() - 6] == 0 && r[r.size() - 3] == 0);  // OPT TTL untouched
 }
+
+TEST(clamp_ttls_raises_and_lowers_every_ttl_but_opt) {
+    std::vector<std::uint8_t> r = with_a(with_a(query("example.com", 1, 0x8180), 5), 90000);
+    r = with_opt(std::move(r), 1232);
+    dns::clamp_ttls(r.data(), r.size(), 60, 3600);
+
+    CHECK(dns::min_ttl(r.data(), r.size()) == 60);
+    dns::set_ttls(r.data(), r.size(), 7200);
+    dns::clamp_ttls(r.data(), r.size(), 60, 3600);
+    CHECK(dns::min_ttl(r.data(), r.size()) == 3600);
+    CHECK(r[r.size() - 6] == 0 && r[r.size() - 3] == 0);  // OPT TTL untouched
+}

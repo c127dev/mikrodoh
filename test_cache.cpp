@@ -273,3 +273,48 @@ TEST(lookup_stale_is_off_without_a_stale_window) {
     std::vector<std::uint8_t> out;
     CHECK(!cache.lookup_stale("k", out));
 }
+
+TEST(a_record_ttl_below_the_minimum_is_raised) {
+    DnsCache cache(3600, 10, 0, 60);
+    cache.store("k", answer(5));
+
+    std::vector<std::uint8_t> out;
+    CHECK(cache.lookup("k", out));
+    CHECK(ttl_of(out) >= 59 && ttl_of(out) <= 60);
+}
+
+TEST(a_minimum_ttl_caches_a_zero_ttl_answer) {
+    DnsCache cache(3600, 10, 0, 30);
+    cache.store("k", answer(0));
+
+    std::vector<std::uint8_t> out;
+    CHECK(cache.lookup("k", out));
+}
+
+TEST(a_record_ttl_above_the_maximum_is_lowered) {
+    DnsCache cache(3600, 10, 0, 0, 120);
+    cache.store("k", answer(86400));
+
+    std::vector<std::uint8_t> out;
+    CHECK(cache.lookup("k", out));
+    CHECK(ttl_of(out) >= 119 && ttl_of(out) <= 120);
+}
+
+TEST(the_maximum_defaults_to_the_configured_ttl) {
+    DnsCache cache(300, 10);
+    cache.store("k", answer(86400));
+
+    std::vector<std::uint8_t> out;
+    CHECK(cache.lookup("k", out));
+    CHECK(ttl_of(out) >= 299 && ttl_of(out) <= 300);
+}
+
+TEST(a_minimum_never_extends_past_the_configured_ttl) {
+    DnsCache cache(1, 10, 0, 60);
+    cache.store("k", answer(5));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
+    std::vector<std::uint8_t> out;
+    CHECK(!cache.lookup("k", out));
+}
