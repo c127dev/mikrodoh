@@ -55,5 +55,21 @@ if(MIKRODOH_SANITIZE)
     target_link_options(mikrodoh_tests PRIVATE -fsanitize=address,undefined)
 endif()
 
+# libFuzzer target for the wire parser. Needs clang.
+option(MIKRODOH_FUZZ "Build the fuzz_dns target" OFF)
+if(MIKRODOH_FUZZ)
+    add_executable(fuzz_dns
+        fuzz/fuzz_dns.cpp
+        "${MIKRODOH_SRC}/src/cache.cpp"
+        "${MIKRODOH_SRC}/src/dns.cpp"
+        "${MIKRODOH_SRC}/src/health.cpp"
+        "${MIKRODOH_SRC}/src/net.cpp"
+    )
+    target_include_directories(fuzz_dns PRIVATE "${MIKRODOH_SRC}/src")
+    target_compile_options(fuzz_dns PRIVATE -g -O1 -fsanitize=fuzzer,address,undefined
+                                            -fno-sanitize-recover=undefined)
+    target_link_options(fuzz_dns PRIVATE -fsanitize=fuzzer,address,undefined)
+endif()
+
 enable_testing()
 add_test(NAME units COMMAND mikrodoh_tests)

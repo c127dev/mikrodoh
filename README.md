@@ -33,12 +33,32 @@ the run exits non-zero.
 Only code that can be tested without a network or a listening socket belongs
 here. `scripts/test.sh` on `main` covers the end-to-end path.
 
+## Fuzzing
+
+`fuzz/fuzz_dns.cpp` is a libFuzzer target over the code that parses bytes off
+the wire: everything in `dns.h`, `DnsCache::key_of` and the health probe. The
+first input byte splits the rest into a query and a response. Besides ASan and
+UBSan, it aborts when an invariant a caller relies on breaks, for example a
+query that passes `query_valid` and stops doing so after `sanitize_edns`.
+`fuzz/corpus/` holds the seeds.
+
+```bash
+cmake -S .tests -B build-fuzz -DMIKRODOH_SRC=$PWD -DMIKRODOH_FUZZ=ON \
+      -DMIKRODOH_SANITIZE=OFF -DCMAKE_CXX_COMPILER=clang++
+cmake --build build-fuzz --target fuzz_dns -j"$(nproc)"
+mkdir -p /tmp/corpus
+./build-fuzz/fuzz_dns -max_total_time=300 -max_len=1024 -jobs="$(nproc)" \
+    /tmp/corpus .tests/fuzz/corpus
+```
+
 ## CI
 
 `.github/workflows/test.yml` runs on `workflow_dispatch`, naming the source ref
 to test. It also has a `push` trigger on this branch whose only job is to get
 the workflow indexed, because GitHub will not dispatch a workflow it has never
-seen; that run gates itself off and does nothing.
+seen; that run gates itself off and does nothing. A dispatch runs the unit
+tests and, as a second job, the fuzzer for two minutes, keeping any crashing
+input as a build artifact.
 
 Pushes to `main` cannot trigger it directly, since a push only ever runs
 workflows present on the ref that was pushed. A poller watching `main`
