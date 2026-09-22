@@ -236,6 +236,8 @@ Config Config::from_env() {
 
     c.resolver_cooldown_ms = env_int("RESOLVER_COOLDOWN_MS", c.resolver_cooldown_ms, 0, 3600000);
 
+    c.warm_interval_sec = env_int("WARM_INTERVAL_SEC", c.warm_interval_sec, 0, 3600);
+
     c.run_as_user  = env_str("RUN_AS_USER", c.run_as_user);
     c.run_as_group = env_str("RUN_AS_GROUP", c.run_as_group);
     c.sandbox      = env_bool("SANDBOX", c.sandbox);
@@ -343,6 +345,9 @@ void Config::print(std::ostream& os) const {
        << "Cooldown      : "
        << (resolver_cooldown_ms > 0 ? std::to_string(resolver_cooldown_ms) + "ms"
                                     : std::string("off"))
+       << "\n"
+       << "Keep warm     : "
+       << (warm_interval_sec > 0 ? std::to_string(warm_interval_sec) + "s idle" : std::string("off"))
        << "\n"
        << "Check cert    : " << (check_cert ? "true" : "false") << "\n"
        << "TCP keep-alive: " << tcp_keep_alive << "s\n"

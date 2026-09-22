@@ -138,6 +138,7 @@ void DohWorker::mark_up(const Transfer* t) {
 
 void DohWorker::start(Transfer* t) {
     if (!t->up) t->up = up_;
+    last_start_ = std::chrono::steady_clock::now();
 
     const Upstream& up = *t->up;
     if (t->url >= up.urls.size()) {
@@ -185,6 +186,11 @@ void DohWorker::start(Transfer* t) {
 }
 
 void DohWorker::finish(Transfer* t, bool ok) {
+    if (t->warm) {
+        delete t;
+        return;
+    }
+
     std::vector<Transfer*> followers = coalescer_.release(t);
 
     if (ok) {
@@ -284,7 +290,7 @@ void DohWorker::reap() {
 
         ok ? mark_up(t) : mark_down(t);
 
-        if (!ok && !draining_ && t->url + 1 < t->up->urls.size()) {
+        if (!ok && !draining_ && !t->warm && t->url + 1 < t->up->urls.size()) {
             t->url++;
             start(t);
             continue;
@@ -292,6 +298,19 @@ void DohWorker::reap() {
 
         finish(t, ok);
     }
+}
+
+void DohWorker::keep_warm() {
+    if (cfg_.warm_interval_sec <= 0 || !active_.empty()) return;
+
+    auto now = std::chrono::steady_clock::now();
+    if (now - last_start_ < std::chrono::seconds(cfg_.warm_interval_sec)) return;
+
+    // `. IN NS`: small, always answerable, and not cached here.
+    auto* t    = new Transfer;
+    t->warm    = true;
+    t->payload = {0, 0, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1};
+    start(t);
 }
 
 void DohWorker::submit(Transfer* t) {
@@ -361,6 +380,8 @@ void DohWorker::run(const std::atomic<bool>& stop) {
         for (Transfer* t : batch)
             if (!coalescer_.join(t)) start(t);
         batch.clear();
+
+        keep_warm();
 
         curl_multi_perform(multi_, &still_running);
         reap();

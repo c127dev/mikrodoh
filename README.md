@@ -109,6 +109,7 @@ every bad key named, and makes a reload keep the old settings.
 | `CONNECT_TIMEOUT_MS` | `3000` | Upstream connect timeout |
 | `REQUEST_TIMEOUT_MS` | `5000` | Upstream request timeout |
 | `RESOLVER_COOLDOWN_MS` | `30000` | How long a failed resolver is skipped, `0` disables the health tracking |
+| `WARM_INTERVAL_SEC` | `30` | After this long with no query, each event loop sends its resolver a `. NS` request of its own, so the HTTP/2 connection is still open for the next query. `0` disables it |
 | `TCP_KEEP_ALIVE` | `0` | Keep-alive interval on the upstream connection, `0` disables |
 | `TCP` | `true` | Serve DNS over TCP as well as UDP |
 | `TCP_MAX_CONNS` | `128` | Accepted TCP connections; further ones are closed at once |

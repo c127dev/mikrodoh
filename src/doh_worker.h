@@ -46,6 +46,7 @@ private:
     void        mark_down(const Transfer* t);
     void        mark_up(const Transfer* t);
     void        refresh_upstream();
+    void        keep_warm();
 
     const Config& cfg_;
     DnsCache&     cache_;
@@ -81,6 +82,11 @@ private:
     // Identical queries share one upstream request. Dispatcher sends a given
     // cache key to the same worker, so a per-worker table catches them.
     Coalescer coalescer_;
+
+    // When this loop last started a transfer. A connection idle for
+    // Config::warm_interval_sec gets a request of its own before the resolver
+    // closes it and the next query pays a TLS handshake.
+    std::chrono::steady_clock::time_point last_start_ = std::chrono::steady_clock::now();
 
     // Set once the loop has left: a failed transfer is answered rather than
     // retried against the next resolver.

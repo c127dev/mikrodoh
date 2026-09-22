@@ -52,6 +52,9 @@ struct Config {
     // failure up to 16x, and is cleared by the next success. 0 disables the
     // memory, so every query pays a dead resolver's timeout again.
     int         resolver_cooldown_ms = 30000;
+    // Seconds a worker's upstream connection may sit idle before the worker
+    // sends a request of its own to keep it open. 0 turns it off.
+    int         warm_interval_sec = 30;
     CipherPref  cipher             = CipherPref::Auto;
     IpVersion   ip_version         = IpVersion::Any;
 

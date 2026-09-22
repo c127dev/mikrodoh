@@ -37,6 +37,10 @@ struct Transfer {
     // client's query, which the reply is built from. Empty otherwise.
     std::vector<std::uint8_t> health_query;
 
+    // Sent by the worker itself to keep the upstream connection open: no
+    // client, no reply, no stats, no cache.
+    bool warm = false;
+
     int                      udp_fd = -1;
     sockaddr_storage         client_addr{};
     socklen_t                addr_len = 0;
