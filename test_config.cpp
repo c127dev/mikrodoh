@@ -25,7 +25,8 @@ const char* kKeys[] = {"LISTEN_ADDR",   "LISTEN_PORT",        "PORT",
                        "RATE_LIMIT_V4_PREFIX", "RATE_LIMIT_V6_PREFIX",
                        "CONFIG_FILE", "CACHE_NEGATIVE", "SERVE_STALE",
                        "STATS_INTERVAL_SEC", "IP_VERSION", "SANDBOX",
-                       "IPV6_V6ONLY", "CACHE_MIN_TTL", "CACHE_MAX_TTL"};
+                       "IPV6_V6ONLY", "CACHE_MIN_TTL", "CACHE_MAX_TTL",
+                       "WARM_INTERVAL_SEC"};
 
 // DOH_FAILOVER_URL_1.. are read until the first gap, so clear a few extra.
 const int kMaxFailoverKeys = 4;
@@ -424,4 +425,15 @@ TEST(cache_ttl_clamp_keys_are_read_and_checked) {
 
     set("CACHE_MIN_TTL", "7200");
     CHECK(Config::from_env().load_error.find("CACHE_MIN_TTL") != std::string::npos);
+}
+
+TEST(warm_interval_defaults_on_and_can_be_turned_off) {
+    clear_env();
+    CHECK(Config::from_env().warm_interval_sec == 30);
+
+    set("WARM_INTERVAL_SEC", "0");
+    CHECK(Config::from_env().warm_interval_sec == 0);
+
+    set("WARM_INTERVAL_SEC", "-1");
+    CHECK(!Config::from_env().load_error.empty());
 }
