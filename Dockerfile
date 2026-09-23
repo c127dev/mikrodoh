@@ -1,6 +1,6 @@
 FROM alpine:latest AS build
 
-RUN apk add --no-cache cmake g++ make curl-dev
+RUN apk add --no-cache cmake g++ make curl-dev linux-headers
 
 WORKDIR /src
 COPY CMakeLists.txt ./
