@@ -26,7 +26,7 @@ const char* kKeys[] = {"LISTEN_ADDR",   "LISTEN_PORT",        "PORT",
                        "CONFIG_FILE", "CACHE_NEGATIVE", "SERVE_STALE",
                        "STATS_INTERVAL_SEC", "IP_VERSION", "SANDBOX",
                        "IPV6_V6ONLY", "CACHE_MIN_TTL", "CACHE_MAX_TTL",
-                       "WARM_INTERVAL_SEC"};
+                       "WARM_INTERVAL_SEC", "PREFETCH"};
 
 // DOH_FAILOVER_URL_1.. are read until the first gap, so clear a few extra.
 const int kMaxFailoverKeys = 4;
@@ -436,4 +436,12 @@ TEST(warm_interval_defaults_on_and_can_be_turned_off) {
 
     set("WARM_INTERVAL_SEC", "-1");
     CHECK(!Config::from_env().load_error.empty());
+}
+
+TEST(prefetch_defaults_on) {
+    clear_env();
+    CHECK(Config::from_env().prefetch);
+
+    set("PREFETCH", "off");
+    CHECK(!Config::from_env().prefetch);
 }

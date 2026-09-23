@@ -318,3 +318,55 @@ TEST(a_minimum_never_extends_past_the_configured_ttl) {
     std::vector<std::uint8_t> out;
     CHECK(!cache.lookup("k", out));
 }
+
+TEST(refresh_is_not_asked_for_on_the_first_hit) {
+    DnsCache cache(60);
+    cache.store("k", answer(1));
+
+    std::vector<std::uint8_t> out;
+    bool                      refresh = false;
+    CHECK(cache.lookup("k", out, &refresh));
+    CHECK(!refresh);
+}
+
+TEST(refresh_is_asked_for_once_near_expiry_on_a_popular_entry) {
+    DnsCache cache(60);
+    cache.store("k", answer(1));
+
+    std::vector<std::uint8_t> out;
+    bool                      refresh = false;
+    CHECK(cache.lookup("k", out, &refresh));
+    CHECK(cache.lookup("k", out, &refresh));
+    CHECK(refresh);
+
+    refresh = false;
+    CHECK(cache.lookup("k", out, &refresh));
+    CHECK(!refresh);  // one refresh per stored answer
+}
+
+TEST(refresh_is_not_asked_for_early_in_the_lifetime) {
+    DnsCache cache(60);
+    cache.store("k", answer(60));
+
+    std::vector<std::uint8_t> out;
+    bool                      refresh = false;
+    for (int i = 0; i < 5; i++) CHECK(cache.lookup("k", out, &refresh));
+    CHECK(!refresh);
+}
+
+TEST(storing_again_rearms_the_refresh) {
+    DnsCache cache(60);
+    cache.store("k", answer(1));
+
+    std::vector<std::uint8_t> out;
+    bool                      refresh = false;
+    cache.lookup("k", out, &refresh);
+    cache.lookup("k", out, &refresh);
+    CHECK(refresh);
+
+    cache.store("k", answer(1));
+    refresh = false;
+    cache.lookup("k", out, &refresh);
+    cache.lookup("k", out, &refresh);
+    CHECK(refresh);
+}

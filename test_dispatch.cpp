@@ -375,3 +375,57 @@ TEST(a_malformed_query_is_charged_to_the_client_rate) {
     CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeServFail);
     CHECK(stats.throttled.load() == 1);
 }
+
+TEST(a_popular_entry_near_expiry_is_prefetched) {
+    Config cfg;
+    cfg.max_inflight = 8;
+    DnsCache                                cache(60);
+    Stats                                   stats;
+    std::vector<std::unique_ptr<DohWorker>> workers;
+    workers.push_back(std::make_unique<DohWorker>(cfg, cache, stats, upstream()));
+    Dispatcher dispatcher{cfg, cache, stats, workers};
+
+    // An answer with one A record of one second, so every hit is in the last
+    // tenth of its lifetime.
+    std::vector<std::uint8_t> q = query("example.com");
+    std::vector<std::uint8_t> r = q;
+    r[2] |= 0x80;
+    r[7] = 1;
+    r.insert(r.end(), {0xC0, 12, 0, 1, 0, 1, 0, 0, 0, 1, 0, 4, 192, 0, 2, 1});
+    cache.store(DnsCache::key_of(q.data(), q.size()), r);
+
+    Pair p;
+    dispatcher.dispatch(p.transfer(q));
+    CHECK(!p.received().empty());
+    CHECK(stats.prefetched.load() == 0);  // one hit is not popular yet
+
+    dispatcher.dispatch(p.transfer(q));
+    CHECK(!p.received().empty());
+    CHECK(stats.prefetched.load() == 1);
+    CHECK(stats.cache_hits.load() == 2);
+    CHECK(stats.inflight.load() == 0);  // a prefetch holds no client slot
+
+    dispatcher.dispatch(p.transfer(q));
+    CHECK(stats.prefetched.load() == 1);  // once per stored answer
+}
+
+TEST(prefetch_off_never_refreshes) {
+    Config cfg;
+    cfg.prefetch = false;
+    DnsCache                                cache(60);
+    Stats                                   stats;
+    std::vector<std::unique_ptr<DohWorker>> workers;
+    workers.push_back(std::make_unique<DohWorker>(cfg, cache, stats, upstream()));
+    Dispatcher dispatcher{cfg, cache, stats, workers};
+
+    std::vector<std::uint8_t> q = query("example.com");
+    std::vector<std::uint8_t> r = q;
+    r[2] |= 0x80;
+    r[7] = 1;
+    r.insert(r.end(), {0xC0, 12, 0, 1, 0, 1, 0, 0, 0, 1, 0, 4, 192, 0, 2, 1});
+    cache.store(DnsCache::key_of(q.data(), q.size()), r);
+
+    Pair p;
+    for (int i = 0; i < 3; i++) dispatcher.dispatch(p.transfer(q));
+    CHECK(stats.prefetched.load() == 0);
+}
