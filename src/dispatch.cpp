@@ -67,12 +67,14 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
         t->cache_key = DnsCache::key_of(msg, len);
 
         std::vector<std::uint8_t> cached;
-        if (cache_.lookup(t->cache_key, cached)) {
+        bool                      refresh = false;
+        if (cache_.lookup(t->cache_key, cached, cfg_.prefetch ? &refresh : nullptr)) {
             cached[0] = msg[0];  // the client's transaction ID, not the cached one
             cached[1] = msg[1];
             t->reply(cached.data(), cached.size());
             stats_.served++;
             stats_.cache_hits++;
+            if (refresh) prefetch(std::move(t));
             return;
         }
     }
@@ -99,11 +101,31 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
 
     stats_.inflight++;
     if (t->conn) t->conn->inflight++;
+    submit(std::move(t));
+}
 
+void Dispatcher::submit(std::unique_ptr<Transfer> t) {
     // A key always goes to the same worker, which is where an identical query
     // already in flight can be found.
     std::size_t slot = t->cache_key.empty()
                            ? next_.fetch_add(1, std::memory_order_relaxed)
                            : std::hash<std::string>{}(t->cache_key);
     workers_[slot % workers_.size()]->submit(t.release());
+}
+
+void Dispatcher::prefetch(std::unique_ptr<Transfer> t) {
+    // A refresh is worth less than a client's query, so it never takes the
+    // last slots under the cap.
+    if (stats_.inflight.load(std::memory_order_relaxed) >= cfg_.max_inflight / 2) return;
+
+    // The client already has its answer. The copy keeps the query and the key
+    // and drops the reply target.
+    auto p       = std::make_unique<Transfer>();
+    p->prefetch  = true;
+    p->payload   = std::move(t->payload);
+    p->cache_key = std::move(t->cache_key);
+    dns::sanitize_edns(p->payload);
+
+    stats_.prefetched++;
+    submit(std::move(p));
 }

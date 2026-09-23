@@ -34,6 +34,9 @@ struct Config {
     // cache_max_ttl]. A max of 0 means `cache_ttl`, which bounds it anyway.
     int         cache_min_ttl = 0;
     int         cache_max_ttl = 0;
+    // Refresh a cache entry that is still being asked for in the last tenth
+    // of its lifetime, so it does not expire under its clients.
+    bool        prefetch = true;
     // Seconds an expired entry is kept to answer when every resolver fails
     // (RFC 8767). 0 turns it off.
     int         serve_stale = 86400;

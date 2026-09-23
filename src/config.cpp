@@ -227,6 +227,7 @@ Config Config::from_env() {
     if (c.cache_max_ttl > 0 && c.cache_min_ttl > c.cache_max_ttl)
         reject("CACHE_MIN_TTL", std::to_string(c.cache_min_ttl).c_str(),
                "above CACHE_MAX_TTL");
+    c.prefetch    = env_bool("PREFETCH", c.prefetch);
     c.serve_stale = env_int("SERVE_STALE", c.serve_stale, 0, 604800);
 
     c.rcvbuf_kb      = env_int("RCVBUF_KB", c.rcvbuf_kb, 1, 1048576);
@@ -355,6 +356,7 @@ void Config::print(std::ostream& os) const {
        << "Cache neg TTL : " << cache_negative_ttl << "s\n"
        << "TTL clamp     : " << cache_min_ttl << "s.."
        << (cache_max_ttl > 0 ? std::to_string(cache_max_ttl) + "s" : std::string("CACHE")) << "\n"
+       << "Prefetch      : " << (prefetch ? "on" : "off") << "\n"
        << "Serve stale   : "
        << (serve_stale > 0 ? std::to_string(serve_stale) + "s" : std::string("off")) << "\n"
        << "TCP           : " << (tcp_enabled ? "on" : "off") << ", max "

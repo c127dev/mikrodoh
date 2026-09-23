@@ -16,6 +16,8 @@ struct Stats {
     std::atomic<unsigned long> cache_hits{0};
     // Answered from an expired cache entry because no resolver answered.
     std::atomic<unsigned long> stale{0};
+    // Upstream requests sent to refresh a popular entry before it expired.
+    std::atomic<unsigned long> prefetched{0};
     // Answered from an identical query already in flight upstream.
     std::atomic<unsigned long> coalesced{0};
     std::atomic<long>          tcp_conns{0};

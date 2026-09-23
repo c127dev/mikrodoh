@@ -118,6 +118,7 @@ every bad key named, and makes a reload keep the old settings.
 | `CACHE_NEGATIVE` | `60` | TTL for NXDOMAIN and empty answers, clamped to `CACHE`, `0` keeps them out of the cache. SERVFAIL and REFUSED are never cached |
 | `CACHE_MIN_TTL` | `0` | Record TTLs in a cached answer below this are raised to it, which also caches a zero-TTL answer |
 | `CACHE_MAX_TTL` | `0` | Record TTLs in a cached answer above this are lowered to it. `0` means `CACHE`, which caps an entry's lifetime anyway |
+| `PREFETCH` | `true` | Refresh an entry asked for more than once when it is hit in the last tenth of its lifetime, so it does not expire under its clients |
 | `SERVE_STALE` | `86400` | Seconds an expired entry is kept to answer, with a 30s TTL, when every resolver fails (RFC 8767). `0` disables it |
 | `STATS_INTERVAL_SEC` | `300` | Seconds between stats lines, `0` disables them |
 | `RUN_AS_USER` | unset | User (name or uid) to switch to once the sockets are bound |

@@ -226,8 +226,14 @@ void DohWorker::finish(Transfer* t, bool ok) {
 }
 
 // Replies to `t` with `response` under its own transaction ID, or SERVFAIL
-// when `response` is null, then frees it.
+// when `response` is null, then frees it. A prefetch has no client and was
+// never counted in flight.
 void DohWorker::answer(Transfer* t, const std::vector<std::uint8_t>* response) {
+    if (t->prefetch) {
+        delete t;
+        return;
+    }
+
     if (!t->health_query.empty()) {
         bool healthy = response &&
                        dns::rcode(response->data(), response->size()) == dns::kRcodeNoError;

@@ -23,6 +23,11 @@ public:
     void dispatch(std::unique_ptr<Transfer> t);
 
 private:
+    // Hands `t` to the worker that owns its cache key.
+    void submit(std::unique_ptr<Transfer> t);
+    // Refreshes the cache entry `t` was just answered from.
+    void prefetch(std::unique_ptr<Transfer> t);
+
     const Config& cfg_;
     DnsCache&     cache_;
     Stats&        stats_;

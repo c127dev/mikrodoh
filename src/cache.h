@@ -30,7 +30,11 @@ public:
     static std::string key_of(const std::uint8_t* packet, std::size_t len);
 
     // `out` has every record TTL lowered by the time the entry has spent here.
-    bool lookup(const std::string& key, std::vector<std::uint8_t>& out) const;
+    // `refresh`, when given, is set once per stored answer: on a hit to an
+    // entry looked up before and within the last tenth of its lifetime, so
+    // the caller can fetch a new answer before this one expires.
+    bool lookup(const std::string& key, std::vector<std::uint8_t>& out,
+                bool* refresh = nullptr) const;
     // An entry past its expiry but within the stale window, with every record
     // TTL set to kStaleTtl. For when no resolver answers.
     bool lookup_stale(const std::string& key, std::vector<std::uint8_t>& out) const;
@@ -47,6 +51,8 @@ private:
         std::time_t                      stored;
         std::time_t                      expires;
         std::list<std::string>::iterator order;
+        mutable unsigned                 hits      = 0;
+        mutable bool                     refreshed = false;
     };
 
     int         ttl_;

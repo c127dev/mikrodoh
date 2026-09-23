@@ -27,7 +27,8 @@ std::string DnsCache::key_of(const std::uint8_t* packet, std::size_t len) {
     return key;
 }
 
-bool DnsCache::lookup(const std::string& key, std::vector<std::uint8_t>& out) const {
+bool DnsCache::lookup(const std::string& key, std::vector<std::uint8_t>& out,
+                      bool* refresh) const {
     if (!enabled() || key.empty()) return false;
 
     std::lock_guard<std::mutex> lock(mutex_);
@@ -39,6 +40,17 @@ bool DnsCache::lookup(const std::string& key, std::vector<std::uint8_t>& out) co
     if (it->second.response.size() < 2) return false;
 
     order_.splice(order_.begin(), order_, it->second.order);
+
+    const Entry& e = it->second;
+    if (refresh && ++e.hits > 1 && !e.refreshed) {
+        std::time_t lifetime = e.expires - e.stored;
+        std::time_t window   = lifetime / 10 > 0 ? lifetime / 10 : 1;
+        if (e.expires - now <= window) {
+            e.refreshed = true;
+            *refresh    = true;
+        }
+    }
+
     out = it->second.response;
     if (now > it->second.stored)
         dns::age_ttls(out.data(), out.size(), static_cast<std::uint32_t>(now - it->second.stored));
@@ -83,9 +95,11 @@ void DnsCache::store(const std::string& key, const std::vector<std::uint8_t>& re
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = entries_.find(key);
     if (it != entries_.end()) {
-        it->second.response = std::move(clamped);
-        it->second.stored   = now;
-        it->second.expires  = expires;
+        it->second.response  = std::move(clamped);
+        it->second.stored    = now;
+        it->second.expires   = expires;
+        it->second.hits      = 0;
+        it->second.refreshed = false;
         order_.splice(order_.begin(), order_, it->second.order);
         return;
     }

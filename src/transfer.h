@@ -41,6 +41,10 @@ struct Transfer {
     // client, no reply, no stats, no cache.
     bool warm = false;
 
+    // Sent to refresh a cache entry before it expires: its answer is stored,
+    // and clients coalesced onto it are answered, but it has none of its own.
+    bool prefetch = false;
+
     int                      udp_fd = -1;
     sockaddr_storage         client_addr{};
     socklen_t                addr_len = 0;
