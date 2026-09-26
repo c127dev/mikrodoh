@@ -1,272 +1,189 @@
 # MikroDoH
 
-A small C++17 daemon that accepts plain UDP DNS queries and forwards them as
-DNS-over-HTTPS. It targets low-end routers - the reference device is a MikroTik
-RB4011iGS+ running the proxy in a RouterOS v7 container.
+MikroDoH turns plain DNS into DNS-over-HTTPS. Adding privacy, it forwards every
+question encrypted to a DoH resolver such as Cloudflare or Quad9, so your ISP
+cannot read or change it.
 
-## Design
+Features:
 
-- **One HTTP/2 connection per event loop.** Each worker drives a `curl_multi`
-  handle with `CURLPIPE_MULTIPLEX` and `CURLOPT_PIPEWAIT`, so hundreds of
-  queries share a single TLS connection and no TLS handshake is repeated.
-- **No thread per query.** A producer thread reads the UDP socket and shards
-  queries to N workers. Concurrency is bounded by `MAX_INFLIGHT`, not by thread
-  count.
-- **Load shedding.** Queries above the in-flight cap are dropped instead of
-  queued, so accepted queries keep bounded latency under burst.
-- **Rate limit per source prefix.** A token bucket per client prefix, so one
-  loud or spoofed source cannot spend the in-flight budget every other client
-  shares. Off by default: see `RATE_LIMIT_QPS`.
-- **Cipher selection from CPU features.** See below.
-- **UDP and TCP.** A stub that gets a truncated answer retries over TCP, so
-  TCP/53 has to answer. The TCP listener follows RFC 7766: two-byte length
-  prefix, several queries pipelined on one connection, responses written in
-  whatever order they finish, connection dropped once idle.
-- **Queries are validated before they leave.** A datagram that is not a
-  well-formed query, or is already a response, is dropped rather than
-  forwarded or answered, so the proxy cannot be used as a reflector.
-- **A failed lookup answers SERVFAIL** instead of nothing, so the client fails
-  over immediately rather than waiting out its own timeout.
-- **A query too large for the read buffer answers FORMERR.** The UDP reader
-  asks the kernel for the datagram's real size, so one that did not fit is
-  answered rather than silently cut and then refused as malformed.
+- UDP and TCP DNS on port 53
+- Several upstream resolvers with automatic failover
+- An optional cache
+- Optional per-client rate limiting
+- A built-in health check
+- Config reload without restart
 
-## Cipher selection
+## Pick your device
 
-TLS record crypto is the throughput ceiling on CPUs without an AES engine,
-because AES-GCM then runs in software. ChaCha20-Poly1305 is much faster in that
-case. `CIPHER=auto` probes the CPU at startup and picks accordingly:
+`boards/` holds one config per device. Start from the closest one:
 
-| CPU | Probe | Selected |
-| --- | --- | --- |
-| x86 with AES-NI | `CPUID.1:ECX[25]` | AES-GCM |
-| x86 without AES-NI | `CPUID.1:ECX[25]` | ChaCha20-Poly1305 |
-| ARMv8 with crypto extensions | `getauxval(AT_HWCAP) & HWCAP_AES` | AES-GCM |
-| ARMv7 (Cortex-A15 and similar) | `getauxval(AT_HWCAP2) & HWCAP2_AES` | ChaCha20-Poly1305 |
-| RISC-V, anything else | none | ChaCha20-Poly1305 |
+| File | Device |
+| --- | --- |
+| `boards/mikrotik-rb4011igs.conf` | MikroTik RB4011iGS+ |
+| `boards/generic-armv7.conf` | Any ARMv7 device |
+| `boards/generic-arm64.conf` | Any ARM64 device |
+| `boards/generic-riscv64.conf` | Any RISC-V 64 device |
+| `boards/generic-x86_64.conf` | Any x86_64 PC or server |
 
-`CIPHER=chacha` and `CIPHER=aes` override the probe. The selection is printed in
-the startup banner.
-
-## OpenSSL assembly
-
-The record crypto belongs to OpenSSL, not to this daemon. OpenSSL carries
-hand-written assembly for both AEADs and dispatches on CPU features at runtime:
-
-| Target | ChaCha20 | Poly1305 |
-| --- | --- | --- |
-| ARMv7 | `chacha-armv4.pl`, NEON | `poly1305-armv4.pl`, NEON |
-| ARMv8 | `chacha-armv8.pl` | `poly1305-armv8.pl` |
-| x86_64 | `chacha-x86_64.pl`, SSSE3/AVX2 | `poly1305-x86_64.pl` |
-
-Two things have to hold for a ChaCha20 build to reach those paths:
-
-1. OpenSSL was not configured with `no-asm`. Some minimal or hardened builds
-   are, and then ChaCha20 and Poly1305 fall back to portable C, which erases
-   the reason to prefer them.
-2. The kernel reports NEON in `AT_HWCAP`. OpenSSL reads it into
-   `OPENSSL_armcap` at startup and picks the NEON code paths from it.
-
-`scripts/crypto-bench.sh` checks both and measures the two AEADs on the device:
+Pass the board name to the build to get its tuning flags:
 
 ```bash
-./scripts/crypto-bench.sh
-OPENSSL_armcap=0 ./scripts/crypto-bench.sh   # same run with ARM asm disabled
+./scripts/build.sh mikrotik-rb4011igs
 ```
 
-Its numbers are the ground truth for `CIPHER`; the CPU probe is only a
-prediction of them.
+## How to:
 
-## Configuration
+### Use a different resolver
 
-Every key is read from the environment. `boards/` holds ready-made sets, one per
-supported device, in `--env-file` format.
-
-A number has to be a whole decimal within the key's range, a boolean one of
-`1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off`, and `CIPHER` and
-`IP_VERSION` one of their listed values. Any other value stops startup with
-every bad key named, and makes a reload keep the old settings.
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `LISTEN_ADDR` | `0.0.0.0` | Address to bind, IPv4 or IPv6 literal |
-| `IPV6_V6ONLY` | `false` | On an IPv6 bind, refuse IPv4 clients |
-| `IP_VERSION` | `auto` | Family used to reach the resolver: `auto`, `4` or `6` |
-| `LISTEN_PORT` | `53` | Port to bind, UDP and TCP |
-| `DOH_URL` | `https://1.1.1.1/dns-query` | Upstream DoH resolver |
-| `DOH_FAILOVER_URL_n` | unset | Resolvers tried, in order, when the ones before them fail. `n` starts at 1 and the list stops at the first gap |
-| `DOH_BOOTSTRAP` | unset | Addresses for resolvers named by hostname, as `host=addr` pairs separated by commas. Repeat a host to give it several addresses |
-| `CIPHER` | `auto` | `auto`, `chacha` or `aes` |
-| `WORKERS` | CPU cores | Event-loop threads; track cores, not query volume |
-| `UDP_READERS` | `WORKERS` | UDP reader threads, each with its own `SO_REUSEPORT` socket |
-| `MAX_INFLIGHT` | `512` | In-flight cap before queries are shed |
-| `RATE_LIMIT_QPS` | `0` | Queries per second per source prefix, `0` disables the limiter. Over the rate a query is answered SERVFAIL |
-| `RATE_LIMIT_BURST` | `RATE_LIMIT_QPS` | Token bucket depth, i.e. how far a source may burst above the rate |
-| `RATE_LIMIT_V4_PREFIX` | `32` | IPv4 prefix length a bucket covers |
-| `RATE_LIMIT_V6_PREFIX` | `56` | IPv6 prefix length a bucket covers, capped at 64 |
-| `RCVBUF_KB` | `4096` | UDP receive/send buffer, in kB |
-| `CHECK_CERT` | `true` | Verify the resolver's certificate |
-| `CONNECT_TIMEOUT_MS` | `3000` | Upstream connect timeout |
-| `REQUEST_TIMEOUT_MS` | `5000` | Upstream request timeout |
-| `RESOLVER_COOLDOWN_MS` | `30000` | How long a failed resolver is skipped, `0` disables the health tracking |
-| `WARM_INTERVAL_SEC` | `30` | After this long with no query, each event loop sends its resolver a `. NS` request of its own, so the HTTP/2 connection is still open for the next query. `0` disables it |
-| `TCP_KEEP_ALIVE` | `0` | Keep-alive interval on the upstream connection, `0` disables |
-| `TCP` | `true` | Serve DNS over TCP as well as UDP |
-| `TCP_MAX_CONNS` | `128` | Accepted TCP connections; further ones are closed at once |
-| `TCP_IDLE_SEC` | `10` | Close a TCP connection after this long with no query |
-| `CACHE` | `0` | Response TTL in seconds, `0` disables the cache |
-| `CACHE_NEGATIVE` | `60` | TTL for NXDOMAIN and empty answers, clamped to `CACHE`, `0` keeps them out of the cache. SERVFAIL and REFUSED are never cached |
-| `CACHE_MIN_TTL` | `0` | Record TTLs in a cached answer below this are raised to it, which also caches a zero-TTL answer |
-| `CACHE_MAX_TTL` | `0` | Record TTLs in a cached answer above this are lowered to it. `0` means `CACHE`, which caps an entry's lifetime anyway |
-| `PREFETCH` | `true` | Refresh an entry asked for more than once when it is hit in the last tenth of its lifetime, so it does not expire under its clients |
-| `SERVE_STALE` | `86400` | Seconds an expired entry is kept to answer, with a 30s TTL, when every resolver fails (RFC 8767). `0` disables it |
-| `STATS_INTERVAL_SEC` | `300` | Seconds between stats lines, `0` disables them |
-| `RUN_AS_USER` | unset | User (name or uid) to switch to once the sockets are bound |
-| `RUN_AS_GROUP` | user's primary group | Group (name or gid) to switch to |
-| `CONFIG_FILE` | unset | `KEY=VALUE` file, the format of `boards/*.conf`, read at startup and on `SIGHUP`. Its keys override the environment's |
-| `SANDBOX` | `true` | Set `no_new_privs` and a seccomp filter after the switch |
-
-`RUN_AS_USER` only applies when the process starts as root, which is what
-binding port 53 without `CAP_NET_BIND_SERVICE` needs. The switch happens after
-both listeners are bound and before any worker thread starts, and startup
-aborts if it fails. Under the reference container the daemon already starts
-unprivileged on a high port, so leave it unset there.
-
-`SANDBOX` then sets `no_new_privs` and installs a seccomp filter before any
-worker thread starts. The filter fails with `EPERM` the syscalls the daemon
-never makes: exec, ptrace, mount and namespace changes, credential changes,
-module and kexec loading, bpf, perf and keyrings. A syscall made through
-another ABI (x32 or a 32-bit compat entry) kills the process. On an
-architecture other than x86_64, i386, arm64, armv7 and riscv64 only
-`no_new_privs` is set. Startup aborts if either step fails.
-
-A stats line reports served, failed, rejected and dropped counts, the
-in-flight and TCP connection gauges, and the cache hit rate. `SIGUSR1` prints
-one on demand, whatever `STATS_INTERVAL_SEC` is set to:
-
-```
-[stats] served=1042 failed=3 rejected=0 dropped=0 inflight=2 tcp_conns=1 cache_hits=780 hit_rate=74%
+```bash
+DOH_URL=https://9.9.9.9/dns-query
 ```
 
-`LISTEN_ADDR` defaults to every interface because the reference deployment is a
-container with its own network namespace. On a host, set it.
-
-A resolver URL naming a host rather than an address has to be resolved before
-it can be reached, and when this daemon is the box's resolver that lookup comes
-straight back to itself and never completes. So a hostname needs a bootstrap
-address, and startup refuses one without it:
+A resolver given by name also needs its address, because MikroDoH cannot ask
+itself where the resolver is:
 
 ```bash
 DOH_URL=https://cloudflare-dns.com/dns-query
 DOH_BOOTSTRAP=cloudflare-dns.com=1.1.1.1,cloudflare-dns.com=1.0.0.1
 ```
 
-The addresses are handed to curl as `CURLOPT_RESOLVE`, so TLS still verifies
-the certificate against the hostname. An IP-literal `DOH_URL` needs nothing.
+### Add backup resolvers
 
-An IPv6 literal is accepted with or without brackets, and may carry a scope
-suffix (`fe80::1%eth0`). `LISTEN_ADDR=::` serves IPv4 clients on the same
-socket, as `::ffff:a.b.c.d`, unless `IPV6_V6ONLY=true`. Only one socket per
-protocol is opened, so serving both families from one process means an IPv6
-bind. `IP_VERSION` is separate: it pins the family used to reach the DoH
-resolver, for a network where one of the two is present but broken.
-
-### Failover
-
-```
+```bash
 DOH_URL=https://1.1.1.1/dns-query
 DOH_FAILOVER_URL_1=https://9.9.9.9/dns-query
 DOH_FAILOVER_URL_2=https://8.8.8.8/dns-query
 ```
 
-A query that fails upstream - connect error, timeout, non-200, or an answer
-that does not match the question - is retried against the next resolver in the
-list. Only once the list is exhausted does the client get SERVFAIL.
+If one fails, the next one is tried. A resolver that failed is skipped for a
+while (`RESOLVER_COOLDOWN_MS`) and retried later.
 
-A resolver that fails is then skipped for `RESOLVER_COOLDOWN_MS`, so the queries
-behind the first one do not pay its timeout again. The cooldown doubles on each
-consecutive failure, up to 16 times the configured value, and is cleared by the
-next answer. The query that lands when a cooldown expires is the probe: if it
-succeeds the resolver is back in rotation at once.
-
-Health is tracked per event loop, not globally, so an outage costs one timeout
-per worker per cooldown. With every resolver in cooldown the query still goes
-out to the next one in the list rather than failing without a request.
-
-### Boards
-
-| File | Device |
-| --- | --- |
-| `boards/mikrotik-rb4011igs.conf` | MikroTik RB4011iGS+ (AL21400, 4x Cortex-A15) |
-| `boards/generic-armv7.conf` | Any ARMv7-A device |
-| `boards/generic-arm64.conf` | Any ARMv8-A device |
-| `boards/generic-riscv64.conf` | Any RV64GC device |
-| `boards/generic-x86_64.conf` | Any x86_64 host |
-
-Board files also carry keys the daemon ignores: `MIKRODOH_TUNE`, the compiler
-flags `scripts/build.sh` passes to cmake, plus `MIKRODOH_PLATFORM` and
-`MIKRODOH_VARIANT`, which name the image a board gets built into.
-
-Adding a device means copying the closest generic file, measuring, and pinning
-the values that differ.
-
-## Build
+### Turn on the cache
 
 ```bash
-./scripts/build.sh                        # host defaults
-./scripts/build.sh mikrotik-rb4011igs     # with that board's tuning flags
+CACHE=3600
 ```
 
-Needs cmake, a C++17 compiler and libcurl headers. The binary lands in
-`build/mikrodoh`.
+Answers are kept up to that many seconds. If every resolver goes down,
+recently cached answers are still served (`SERVE_STALE`).
 
-## Run
+### Limit noisy clients
 
 ```bash
-set -a; . ./boards/generic-x86_64.conf; set +a
-./build/mikrodoh
+RATE_LIMIT_QPS=50
 ```
 
-End-to-end check, builds and resolves a name through the proxy on port 6353:
+Each client (per /32 on IPv4, /56 on IPv6) gets 50 queries per second.
+
+### Listen on one address or on IPv6
+
+`LISTEN_ADDR` defaults to every interface. On a normal host, set it:
 
 ```bash
-./scripts/test.sh
+LISTEN_ADDR=192.168.88.1
+LISTEN_ADDR=::          # IPv6 and IPv4 on one socket
 ```
 
-## Reload
+### Run as a normal user
 
-`SIGHUP` re-reads `CONFIG_FILE` and the environment and applies the resolver
-settings without a restart: `DOH_URL`, `DOH_FAILOVER_URL_n`, `DOH_BOOTSTRAP`,
-`CONNECT_TIMEOUT_MS`, `REQUEST_TIMEOUT_MS`, `RESOLVER_COOLDOWN_MS`,
-`CHECK_CERT` and `TCP_KEEP_ALIVE`. The cache and the open upstream connections
-are kept, and queries already in flight finish on the list they started with.
-Every other key needs a restart.
+Started as root to bind port 53, MikroDoH can drop to another user once the
+port is open:
 
-A file that cannot be read, or a resolver that would be refused at startup,
-is logged and the old settings stay. The file is read again after the switch
-to `RUN_AS_USER`, so that user has to be able to read it.
+```bash
+RUN_AS_USER=nobody
+```
+
+It also locks itself down with a seccomp filter (`SANDBOX=true`, the default).
+
+### Change settings without restarting
+
+Put the settings in a file and point `CONFIG_FILE` at it. After editing it:
 
 ```bash
 kill -HUP $(pidof mikrodoh)
 ```
 
-## Health check
+Resolver settings (`DOH_*`, timeouts, `CHECK_CERT`, `TCP_KEEP_ALIVE`) apply
+immediately. Anything else needs a restart. A broken file is logged and the
+old settings stay.
 
-A query for `health.mikrodoh.` is not forwarded as asked. The daemon sends the
-resolvers a query for the root NS set, past the cache, and answers NOERROR
-when one of them answers it, SERVFAIL when none does. An A query gets
-`127.0.0.1` with a TTL of 0.
+### Check it is healthy
 
-`mikrodoh --health` sends that query to the local listener, using the same
-`LISTEN_ADDR` and `LISTEN_PORT`, and exits 0 on NOERROR, 1 otherwise. It needs
-no other tool in the image:
+```bash
+mikrodoh --health     # exit 0 = working, 1 = not
+```
+
+In a container:
 
 ```dockerfile
 HEALTHCHECK --interval=30s --timeout=15s CMD ["/usr/bin/mikrodoh", "--health"]
 ```
 
-A RouterOS netwatch probe of type `dns` asks for `health.mikrodoh`, record
-type A, against the proxy's address.
+On RouterOS, add a netwatch probe of type `dns` for `health.mikrodoh`, type A,
+against the proxy's address.
+
+### See what it is doing
+
+A stats line is printed every 5 minutes, or on demand with
+`kill -USR1 $(pidof mikrodoh)`:
+
+```
+[stats] served=1042 failed=3 rejected=0 dropped=0 inflight=2 tcp_conns=1 cache_hits=780 hit_rate=74%
+```
+
+### Is my router fast enough?
+
+```bash
+./scripts/crypto-bench.sh
+```
+
+It measures the encryption speed on the device. MikroDoH picks the faster
+cipher on its own (`CIPHER=auto`); the bench tells you whether forcing
+`CIPHER=chacha` or `CIPHER=aes` would help.
+
+## All settings
+
+Every setting is an environment variable (or a line in `CONFIG_FILE`). A bad
+value stops startup and names the key.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `LISTEN_ADDR` | `0.0.0.0` | Address to listen on, IPv4 or IPv6 |
+| `LISTEN_PORT` | `53` | Port, UDP and TCP |
+| `IPV6_V6ONLY` | `false` | On an IPv6 address, refuse IPv4 clients |
+| `IP_VERSION` | `auto` | Reach the resolver over `auto`, `4` or `6` |
+| `DOH_URL` | `https://1.1.1.1/dns-query` | Main resolver |
+| `DOH_FAILOVER_URL_n` | unset | Backup resolvers, `n` from 1 up, no gaps |
+| `DOH_BOOTSTRAP` | unset | `host=addr` pairs for resolvers given by name |
+| `CIPHER` | `auto` | `auto`, `chacha` or `aes` |
+| `WORKERS` | CPU cores | Worker threads |
+| `UDP_READERS` | `WORKERS` | UDP reader threads |
+| `MAX_INFLIGHT` | `512` | Queries in progress before new ones are dropped |
+| `RATE_LIMIT_QPS` | `0` | Queries per second per client, `0` = off |
+| `RATE_LIMIT_BURST` | `RATE_LIMIT_QPS` | How far a client may burst above that |
+| `RATE_LIMIT_V4_PREFIX` | `32` | IPv4 prefix counted as one client |
+| `RATE_LIMIT_V6_PREFIX` | `56` | IPv6 prefix counted as one client, max 64 |
+| `RCVBUF_KB` | `4096` | UDP socket buffer, kB |
+| `CHECK_CERT` | `true` | Verify the resolver's certificate |
+| `CONNECT_TIMEOUT_MS` | `3000` | Resolver connect timeout |
+| `REQUEST_TIMEOUT_MS` | `5000` | Resolver answer timeout |
+| `RESOLVER_COOLDOWN_MS` | `30000` | How long a failed resolver is skipped, `0` = never |
+| `WARM_INTERVAL_SEC` | `30` | Keep the resolver connection open when idle, `0` = off |
+| `TCP_KEEP_ALIVE` | `0` | TCP keep-alive to the resolver, `0` = off |
+| `TCP` | `true` | Also serve DNS over TCP |
+| `TCP_MAX_CONNS` | `128` | Max TCP clients at once |
+| `TCP_IDLE_SEC` | `10` | Close idle TCP clients after this |
+| `CACHE` | `0` | Cache lifetime in seconds, `0` = off |
+| `CACHE_NEGATIVE` | `60` | Cache lifetime for "not found" answers |
+| `CACHE_MIN_TTL` | `0` | Raise shorter record TTLs to this |
+| `CACHE_MAX_TTL` | `0` | Lower longer record TTLs to this, `0` = `CACHE` |
+| `PREFETCH` | `true` | Refresh popular entries before they expire |
+| `SERVE_STALE` | `86400` | Serve expired answers this long when resolvers are down |
+| `STATS_INTERVAL_SEC` | `300` | Seconds between stats lines, `0` = off |
+| `RUN_AS_USER` | unset | User to switch to after binding |
+| `RUN_AS_GROUP` | user's group | Group to switch to |
+| `CONFIG_FILE` | unset | Settings file, re-read on `SIGHUP` |
+| `SANDBOX` | `true` | Lock the process down after startup |
 
 ## License
 
