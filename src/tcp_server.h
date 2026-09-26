@@ -10,9 +10,6 @@
 
 class Dispatcher;
 
-// DNS over TCP, per RFC 7766: two-byte length prefix, several queries
-// pipelined on one connection, responses written in whatever order they
-// finish, and the connection kept open until it goes idle.
 class TcpServer {
 public:
     TcpServer(const Config& cfg, Dispatcher& dispatcher, Stats& stats);

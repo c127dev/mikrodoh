@@ -17,9 +17,6 @@
 
 class DnsCache;
 
-// A curl_multi event loop. Every query it owns is multiplexed onto a single
-// HTTP/2 connection, so concurrency is capped by Config::max_inflight rather
-// than by thread count.
 class DohWorker {
 public:
     DohWorker(const Config& cfg, DnsCache& cache, Stats& stats, UpstreamSource& upstream);
@@ -28,7 +25,6 @@ public:
     DohWorker(const DohWorker&)            = delete;
     DohWorker& operator=(const DohWorker&) = delete;
 
-    // Producer side: takes ownership of `t` and wakes the loop.
     void submit(Transfer* t);
 
     void run(const std::atomic<bool>& stop);
@@ -55,16 +51,10 @@ private:
     CURLM*             multi_   = nullptr;
     struct curl_slist* headers_ = nullptr;
 
-    // The snapshot new queries start with, picked up from `source_` when its
-    // generation moves.
     UpstreamSource&                 source_;
     std::shared_ptr<const Upstream> up_;
     unsigned                        up_generation_ = 0;
 
-    // What this loop has learnt about each entry of `up_->urls`, reset on a
-    // reload. It is per-worker and needs no locking: a dead resolver is found
-    // again by every worker at most once per cooldown. A query still on an
-    // older snapshot does not touch it.
     struct Resolver {
         std::chrono::steady_clock::time_point down_until{};
         unsigned                              fails = 0;
@@ -75,20 +65,11 @@ private:
     std::vector<Transfer*> inbox_;
     std::vector<CURL*>     idle_;
 
-    // The handles currently in multi_. curl cannot be asked what it is still
-    // carrying, and shutdown has to answer and free every one of them.
     std::unordered_set<CURL*> active_;
 
-    // Identical queries share one upstream request. Dispatcher sends a given
-    // cache key to the same worker, so a per-worker table catches them.
     Coalescer coalescer_;
 
-    // When this loop last started a transfer. A connection idle for
-    // Config::warm_interval_sec gets a request of its own before the resolver
-    // closes it and the next query pays a TLS handshake.
     std::chrono::steady_clock::time_point last_start_ = std::chrono::steady_clock::now();
 
-    // Set once the loop has left: a failed transfer is answered rather than
-    // retried against the next resolver.
     bool draining_ = false;
 };

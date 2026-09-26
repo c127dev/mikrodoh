@@ -9,21 +9,12 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-// Monotonic milliseconds, the unit of TcpConn::last_activity.
 std::uint64_t tcp_now_ms();
 
-// Whether a connection last active at `last_ms` has been idle for the whole
-// configured timeout. Milliseconds throughout: whole-second arithmetic cut the
-// timeout short by up to a second.
 bool tcp_conn_idle(std::uint64_t now_ms, std::uint64_t last_ms, int idle_sec);
 
-// One accepted TCP connection. The accept loop owns the read side; workers
-// finishing a transfer call send_message() from their own threads, so the
-// write side is behind a mutex.
-//
-// Held by shared_ptr: a connection the loop has dropped stays alive until the
-// last in-flight transfer that still points at it is done, which is what keeps
-// the descriptor valid without the loop having to track transfers.
+// Held by shared_ptr: a dropped connection stays alive until the last
+// in-flight transfer pointing at it finishes.
 class TcpConn {
 public:
     explicit TcpConn(int fd);
@@ -34,26 +25,15 @@ public:
 
     int fd() const { return fd_; }
 
-    // Worker side. Prefixes the RFC 1035 two-byte length, appends to the out
-    // buffer and writes what it can without blocking. Leftovers are flushed by
-    // the loop once it polls for POLLOUT.
     void send_message(const std::uint8_t* data, std::size_t len);
 
-    // Loop side. False means the connection is finished and must be dropped.
     bool flush();
     bool want_write() const;
     bool failed() const;
     void mark_failed();
 
-    // Read buffer and idle clock: loop-side only, no lock. `inflight` is
-    // raised by the dispatcher and lowered by whichever worker finishes, so it
-    // is the one field the loop shares. The clock is monotonic milliseconds,
-    // so the sweep neither rounds the timeout down nor follows a wall-clock
-    // step.
     std::vector<std::uint8_t> in;
     std::uint64_t             last_activity = 0;
-    // Filled by the accept loop. The rate limiter needs it; the reply path
-    // does not, because it writes back down this connection.
     sockaddr_storage          peer{};
     std::atomic<long>         inflight{0};
 

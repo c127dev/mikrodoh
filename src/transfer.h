@@ -12,37 +12,22 @@
 #include "tcp_conn.h"
 #include "upstream.h"
 
-// One outstanding DoH request. Lives from DohWorker::start() to CURLMSG_DONE.
-//
-// The reply target is whichever of the two sides is set: a UDP socket plus the
-// client address, or a TCP connection. `conn` being non-null selects TCP.
+// `conn` set means the reply goes over TCP, otherwise to `udp_fd`.
 struct Transfer {
     std::vector<std::uint8_t> payload;
     std::vector<std::uint8_t> response;
     std::string               cache_key;
 
-    // The resolver list this query walks, fixed when it is first started.
     std::shared_ptr<const Upstream> up;
 
-    // Index into `up->urls`: the resolver this attempt uses. Bumped past
-    // each failure, and past any resolver in cooldown, until the list runs out.
     std::size_t url = 0;
 
-    // The datagram was larger than the read buffer, so `payload` holds only
-    // its first bytes. Nothing but an error can be built from a query whose
-    // tail was never read.
     bool query_truncated = false;
 
-    // A health probe: `payload` is the upstream stand-in and this is the
-    // client's query, which the reply is built from. Empty otherwise.
     std::vector<std::uint8_t> health_query;
 
-    // Sent by the worker itself to keep the upstream connection open: no
-    // client, no reply, no stats, no cache.
     bool warm = false;
 
-    // Sent to refresh a cache entry before it expires: its answer is stored,
-    // and clients coalesced onto it are answered, but it has none of its own.
     bool prefetch = false;
 
     int                      udp_fd = -1;

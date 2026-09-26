@@ -11,12 +11,6 @@
 
 class Dispatcher;
 
-// Producer: reads UDP queries and hands them to the dispatcher.
-//
-// One socket per reader thread, all bound to the same address with
-// SO_REUSEPORT so the kernel spreads client flows across them, and each read
-// pulls a batch of datagrams with recvmmsg(). A single reader on one socket was
-// the query-rate ceiling on a multi-core board.
 class UdpServer {
 public:
     UdpServer(const Config& cfg, Dispatcher& dispatcher);
@@ -29,7 +23,6 @@ public:
 
     std::size_t readers() const { return fds_.size(); }
 
-    // Reads from socket `index` until `stop`. One call per reader thread.
     void run(std::size_t index, const std::atomic<bool>& stop);
 
 private:
