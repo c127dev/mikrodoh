@@ -22,21 +22,15 @@
 #include "upstream.h"
 
 namespace {
-
 std::atomic<bool> g_stop{false};
 std::atomic<bool> g_dump{false};
 std::atomic<bool> g_reload{false};
 
 void on_signal(int) { g_stop.store(true); }
 
-// Only a flag: the dump itself writes to stdout, which is not async-signal
-// safe. The stats thread picks it up.
 void on_dump(int) { g_dump.store(true); }
 void on_reload(int) { g_reload.store(true); }
 
-// Re-reads CONFIG_FILE and the environment, and swaps in the resolver
-// settings. The cache and the open upstream connections are kept. A
-// configuration that would fail at startup is refused and the old one stays.
 void reload(UpstreamSource& upstream) {
     Config next = Config::from_env();
     if (!next.load_error.empty()) {
@@ -55,7 +49,6 @@ void reload(UpstreamSource& upstream) {
     std::cout << line << "\n" << std::flush;
 }
 
-// Sleeps in short slices so SIGUSR1 and shutdown are noticed promptly.
 void stats_loop(const Config& cfg, const Stats& stats, UpstreamSource& upstream) {
     constexpr auto kTick = std::chrono::milliseconds(200);
     auto next = std::chrono::steady_clock::now() +
@@ -88,8 +81,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Before any socket: a resolver this daemon cannot reach without asking
-    // itself never answers, and the failure looks like a network outage.
     if (!cfg.resolvers_reachable(std::cerr)) {
         curl_global_cleanup();
         return 1;
@@ -125,8 +116,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // After the binds, so a privileged port still works, and before any
-    // worker thread exists to inherit the old credentials.
     if (!drop_privileges(cfg.run_as_user, cfg.run_as_group)) {
         curl_global_cleanup();
         return 1;
@@ -148,7 +137,6 @@ int main(int argc, char** argv) {
 
     threads.emplace_back([&cfg, &stats, &upstream] { stats_loop(cfg, stats, upstream); });
 
-    // Reader 0 runs on this thread, so main still blocks until shutdown.
     for (std::size_t i = 1; i < udp.readers(); ++i)
         threads.emplace_back([&udp, i] { udp.run(i, g_stop); });
 

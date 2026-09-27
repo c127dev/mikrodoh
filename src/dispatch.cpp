@@ -21,9 +21,7 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
     const std::uint8_t* msg = t->payload.data();
     const std::size_t   len = t->payload.size();
 
-    // Per-source budget first, and on every datagram rather than every valid
-    // one: a source is charged for what it sends, and the point is to cap what
-    // it can make this daemon send back, cache hits included.
+    // Charge every datagram, cache hits included.
     if (!limiter_.allow(t->client_addr)) {
         unsigned long throttled = ++stats_.throttled;
         if ((throttled & 0x3FF) == 0)
@@ -36,9 +34,6 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
         return;
     }
 
-    // A query whose tail never fit the read buffer cannot be forwarded or
-    // validated, and dropping it in silence leaves the client to wait out its
-    // own timeout on what is a client-side error. Say FORMERR.
     if (t->query_truncated) {
         stats_.oversized++;
 
@@ -48,22 +43,16 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
         return;
     }
 
-    // Answering a malformed datagram, or one that is already a response, is
-    // what turns a resolver into a reflector. Drop it.
+    // Answering malformed datagrams or responses makes a reflector.
     if (!dns::query_valid(msg, len)) {
         stats_.rejected++;
         return;
     }
 
-    // A health probe is forwarded as a probe of its own, past the cache: an
-    // answer from there says nothing about the resolvers. `msg` stays valid,
-    // the buffer moves with it.
     if (health::is_probe(msg, len)) {
         t->health_query = std::move(t->payload);
         t->payload      = health::upstream_request(msg, len);
     } else {
-        // Computed with the cache off as well: identical in-flight queries are
-        // coalesced on it.
         t->cache_key = DnsCache::key_of(msg, len);
 
         std::vector<std::uint8_t> cached;
@@ -79,24 +68,18 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
         }
     }
 
-    // Shed instead of queueing without bound: accepted queries keep their
-    // latency and the box degrades gracefully under burst.
     if (stats_.inflight.load(std::memory_order_relaxed) >= cfg_.max_inflight) {
         unsigned long dropped = ++stats_.dropped;
         if ((dropped & 0x3FF) == 0)
             std::cerr << "[shed] dropped " << dropped << " queries (in-flight cap "
                       << cfg_.max_inflight << ")\n";
 
-        // Say no now: a silent drop makes a UDP client wait out its own timeout
-        // and leaves a TCP connection open until the idle sweep, which holds a
-        // slot the cap is meant to free.
         std::vector<std::uint8_t> fail =
             dns::make_error(msg, len, dns::kRcodeServFail);
         if (!fail.empty()) t->reply(fail.data(), fail.size());
         return;
     }
 
-    // The client's subnet is what this proxy hides from the resolver.
     dns::sanitize_edns(t->payload);
 
     stats_.inflight++;
@@ -105,8 +88,6 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
 }
 
 void Dispatcher::submit(std::unique_ptr<Transfer> t) {
-    // A key always goes to the same worker, which is where an identical query
-    // already in flight can be found.
     std::size_t slot = t->cache_key.empty()
                            ? next_.fetch_add(1, std::memory_order_relaxed)
                            : std::hash<std::string>{}(t->cache_key);
@@ -114,12 +95,8 @@ void Dispatcher::submit(std::unique_ptr<Transfer> t) {
 }
 
 void Dispatcher::prefetch(std::unique_ptr<Transfer> t) {
-    // A refresh is worth less than a client's query, so it never takes the
-    // last slots under the cap.
     if (stats_.inflight.load(std::memory_order_relaxed) >= cfg_.max_inflight / 2) return;
 
-    // The client already has its answer. The copy keeps the query and the key
-    // and drops the reply target.
     auto p       = std::make_unique<Transfer>();
     p->prefetch  = true;
     p->payload   = std::move(t->payload);

@@ -16,24 +16,19 @@
 #include <vector>
 
 namespace {
-
 std::string lower(std::string s) {
     for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return s;
 }
 
-// CONFIG_FILE's entries while from_env() runs. Only one thread loads the
-// configuration at a time: main at startup, then the stats thread on SIGHUP.
 const std::unordered_map<std::string, std::string>* g_file = nullptr;
 
-// What was wrong with the values read during the same from_env() call.
 std::vector<std::string>* g_errors = nullptr;
 
 void reject(const char* name, const char* value, const std::string& why) {
     if (g_errors) g_errors->push_back(std::string(name) + "=" + value + ": " + why);
 }
 
-// A key from CONFIG_FILE wins over the same key in the environment.
 const char* lookup(const char* name) {
     if (g_file) {
         auto it = g_file->find(name);
@@ -47,8 +42,6 @@ std::string env_str(const char* name, const std::string& fallback) {
     return v && *v ? std::string(v) : fallback;
 }
 
-// A whole decimal integer within [min, max]. Anything else is rejected and
-// `fallback` returned, so the caller still has a usable value to report with.
 long env_long(const char* name, long fallback, long min, long max) {
     const char* v = lookup(name);
     if (!v || !*v) return fallback;
@@ -89,8 +82,6 @@ std::string trim(const std::string& s) {
     return s.substr(b, s.find_last_not_of(" \t") - b + 1);
 }
 
-// KEY=VALUE lines, the format of boards/*.conf: blank lines and # comments
-// skipped, an optional "export " and one pair of surrounding quotes removed.
 bool read_config_file(const std::string& path,
                       std::unordered_map<std::string, std::string>& out) {
     std::ifstream in(path);
@@ -115,8 +106,6 @@ bool read_config_file(const std::string& path,
     return true;
 }
 
-// "dns.example=1.1.1.1,dns.example=1.0.0.1,other=2606:4700::1111" into
-// host -> the addresses given for it, in the order they appear.
 std::vector<std::pair<std::string, std::vector<std::string>>> parse_bootstrap(
     const std::string& spec) {
     std::vector<std::pair<std::string, std::vector<std::string>>> out;
@@ -186,8 +175,6 @@ Config Config::from_env() {
         c.doh_urls.push_back(url);
     }
 
-    // An entry is only useful for a host this daemon actually talks to, so the
-    // curl form is built per resolver URL: the port comes from the URL.
     for (const auto& entry : parse_bootstrap(env_str("DOH_BOOTSTRAP", ""))) {
         for (const std::string& url : c.doh_urls) {
             std::string host;
@@ -199,8 +186,6 @@ Config Config::from_env() {
             for (std::size_t i = 0; i < entry.second.size(); i++)
                 line += (i ? "," : "") + entry.second[i];
 
-            // The same host can appear on two URLs with different ports, and
-            // each of those needs its own entry.
             bool seen = false;
             for (const std::string& have : c.resolve_entries)
                 seen = seen || have == line;
@@ -270,9 +255,6 @@ Config Config::from_env() {
     else if (pref == "auto") c.cipher = CipherPref::Auto;
     else reject("CIPHER", pref.c_str(), "not one of auto, chacha, aes");
 
-    // Without an AES engine the TLS record layer runs AES-GCM in software,
-    // which is the DoH throughput ceiling on such CPUs. ChaCha20-Poly1305 is
-    // faster there, so Auto selects it.
     c.prefer_chacha = c.cipher == CipherPref::ChaCha ||
                       (c.cipher == CipherPref::Auto && !cpu::has_aes());
 
@@ -378,7 +360,5 @@ void Config::print(std::ostream& os) const {
        << "Cipher        : " << cipher_name(cipher) << " -> "
        << (prefer_chacha ? "ChaCha20-Poly1305" : "AES-GCM") << "\n";
 
-    // stdout is a pipe under a container runtime, so without this the banner
-    // sits in the buffer until the process exits.
     os.flush();
 }

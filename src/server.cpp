@@ -14,14 +14,10 @@
 #include <unistd.h>
 
 namespace {
-
-// Generous enough for EDNS0 payloads.
 constexpr std::size_t kMaxDnsPacket = 4096;
 
 constexpr int kRecvTimeoutMs = 200;
 
-// Datagrams read per recvmmsg() call. The buffers are per reader thread, so
-// this costs kBatch * kMaxDnsPacket bytes each.
 constexpr unsigned kBatch = 16;
 
 }  // namespace
@@ -44,8 +40,6 @@ int UdpServer::open_one(const sockaddr_storage& addr, socklen_t addr_len,
 
     apply_v6only(fd, addr, cfg_.ipv6_v6only);
 
-    // Every reader binds the same address, and the kernel hashes each client
-    // flow onto one of them.
     if (reuseport) {
         int on = 1;
         if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on)) < 0) {
@@ -60,8 +54,6 @@ int UdpServer::open_one(const sockaddr_storage& addr, socklen_t addr_len,
     setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &bufbytes, sizeof(bufbytes));
     setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &bufbytes, sizeof(bufbytes));
 
-    // Without a timeout the receive blocks forever and the process ignores
-    // SIGINT/SIGTERM until the next query arrives.
     struct timeval timeout {
         0, kRecvTimeoutMs * 1000
     };
@@ -120,12 +112,7 @@ void UdpServer::run(std::size_t index, const std::atomic<bool>& stop) {
             msgs[i].msg_hdr.msg_iovlen  = 1;
         }
 
-        // MSG_WAITFORONE returns as soon as the first datagram is in, so a
-        // single query is not held back waiting for the batch to fill. The
-        // SO_RCVTIMEO above bounds that first wait.
-        // MSG_TRUNC reports the datagram's real size in msg_len even when it
-        // did not fit the buffer. Without it an oversized query arrives cut,
-        // looks malformed and is dropped in silence.
+        // MSG_TRUNC gives the real size, so an oversized query can be answered.
         int got = recvmmsg(fd, msgs.data(), kBatch, MSG_WAITFORONE | MSG_TRUNC, nullptr);
         if (got <= 0) continue;
 
@@ -138,8 +125,6 @@ void UdpServer::run(std::size_t index, const std::atomic<bool>& stop) {
             t->client_addr = clients[i];
             t->addr_len    = msgs[i].msg_hdr.msg_namelen;
 
-            // Both are checked: msg_len is the datagram's size and the flag is
-            // what the kernel sets when it did not all fit.
             if (len > kMaxDnsPacket ||
                 (msgs[i].msg_hdr.msg_flags & MSG_TRUNC) != 0) {
                 t->query_truncated = true;

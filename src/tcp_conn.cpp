@@ -7,9 +7,6 @@
 #include <unistd.h>
 
 namespace {
-
-// Reclaim the consumed prefix once it dominates the buffer, so a long-lived
-// pipelining connection does not grow without bound.
 constexpr std::size_t kCompactThreshold = 4096;
 
 }  // namespace

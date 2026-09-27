@@ -12,17 +12,13 @@
 #include <unistd.h>
 
 namespace health {
-
 namespace {
-
-// health.mikrodoh. in wire format.
 const std::uint8_t kName[] = {6, 'h', 'e', 'a', 'l', 't', 'h', 8, 'm', 'i', 'k',
                               'r', 'o', 'd', 'o', 'h', 0};
 
 constexpr std::uint16_t kTypeA  = 1;
 constexpr std::uint16_t kTypeNs = 2;
 
-// Long enough for REQUEST_TIMEOUT_MS on every resolver in a short list.
 constexpr int kProbeTimeoutMs = 10000;
 
 std::uint8_t lower(std::uint8_t c) {
@@ -67,9 +63,6 @@ std::vector<std::uint8_t> answer(const std::uint8_t* query, std::size_t len, boo
 }
 
 namespace {
-
-// A connected UDP socket to the listener, or -1. A wildcard bind is reached
-// on loopback; a dual-stack one on IPv4 too, for a host without ::1.
 int connect_listener(const Config& cfg) {
     std::vector<std::string> targets{cfg.listen_addr};
     if (cfg.listen_addr == "0.0.0.0") targets = {"127.0.0.1"};

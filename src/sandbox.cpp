@@ -13,7 +13,6 @@
 #include <sys/syscall.h>
 
 namespace {
-
 #if defined(__x86_64__)
 constexpr unsigned kArch = AUDIT_ARCH_X86_64;
 #elif defined(__i386__)
@@ -28,8 +27,6 @@ constexpr unsigned kArch = AUDIT_ARCH_RISCV64;
 constexpr unsigned kArch = 0;
 #endif
 
-// Numbers differ per architecture and some calls do not exist on every one,
-// hence the guards.
 const std::vector<unsigned> denied = {
 #ifdef __NR_execve
     __NR_execve,
@@ -175,8 +172,7 @@ bool enter_sandbox() {
 
     std::vector<sock_filter> prog;
 
-    // A syscall made through another ABI (x32, a 32-bit compat entry) has other
-    // numbers, so it is killed rather than matched against the wrong list.
+    // Other ABIs (x32, 32-bit compat) have other numbers: kill.
     prog.push_back(BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(seccomp_data, arch)));
     prog.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, kArch, 1, 0));
     prog.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS));

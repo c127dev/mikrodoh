@@ -16,8 +16,6 @@ bool parse_bind_addr(const std::string& addr, int port, sockaddr_storage& out,
     addrinfo hints{};
     hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_DGRAM;
-    // A literal only: a name here would make the bind depend on resolution,
-    // which is the service this daemon is trying to provide.
     hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV | AI_PASSIVE;
 
     std::string service = std::to_string(port);
@@ -62,11 +60,9 @@ bool split_url_authority(const std::string& url, std::string& host, int& port) {
     std::string::size_type start = url.find("://");
     start = start == std::string::npos ? 0 : start + 3;
 
-    // The authority ends at the path, the query or the fragment.
     std::string::size_type end = url.find_first_of("/?#", start);
     std::string authority = url.substr(start, end - start);
 
-    // Credentials are not used by this daemon, but they precede the host.
     std::string::size_type at = authority.rfind('@');
     if (at != std::string::npos) authority = authority.substr(at + 1);
     if (authority.empty()) return false;

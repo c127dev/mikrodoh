@@ -12,8 +12,6 @@
 #include <unistd.h>
 
 namespace {
-
-// Accepts a name or a numeric id, so an image without /etc/passwd still works.
 bool lookup_user(const std::string& user, uid_t& uid, gid_t& gid) {
     std::vector<char> buf(4096);
     passwd            pw{};
@@ -90,8 +88,7 @@ bool drop_privileges(const std::string& user, const std::string& group) {
         return false;
     }
 
-    // Supplementary groups survive setuid, so clear them first: root's groups
-    // are the ones worth keeping away from the daemon.
+    // Supplementary groups survive setuid.
     if (setgroups(0, nullptr) != 0) {
         fail("setgroups");
         return false;
@@ -105,7 +102,7 @@ bool drop_privileges(const std::string& user, const std::string& group) {
         return false;
     }
 
-    // A saved set-user-ID left behind would let the process return to root.
+    // A saved set-user-ID would allow returning to root.
     if (setuid(0) == 0 || geteuid() != uid || getuid() != uid) {
         std::cerr << "Failed to drop privileges: root is still reachable\n";
         return false;

@@ -16,13 +16,10 @@
 #include <unistd.h>
 
 namespace {
-
 constexpr int         kBacklog     = 64;
 constexpr int         kPollTimeout = 100;
 constexpr std::size_t kReadChunk   = 4096;
 
-// RFC 1035 section 4.2.2: every message on a TCP connection is preceded by its
-// length as a two-byte big-endian field.
 constexpr std::size_t kLenPrefix = 2;
 
 bool set_nonblocking(int fd) {
@@ -78,8 +75,6 @@ void TcpServer::accept_one() {
     int cfd = accept(fd_, reinterpret_cast<sockaddr*>(&peer), &peer_len);
     if (cfd < 0) return;
 
-    // Over the cap the connection is refused immediately rather than left in
-    // the backlog, so a client learns to fall back instead of hanging.
     if (slots_.size() >= static_cast<std::size_t>(cfg_.tcp_max_conns)) {
         close(cfd);
         return;
@@ -107,8 +102,6 @@ bool TcpServer::read_and_dispatch(Slot& slot) {
     conn.in.resize(base + (n > 0 ? static_cast<std::size_t>(n) : 0));
 
     if (n == 0) {
-        // Client is done sending. Answers already in flight still have to go
-        // out, so the connection closes only once they have.
         slot.reading_done = true;
     } else if (n < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) return false;
@@ -121,8 +114,6 @@ bool TcpServer::read_and_dispatch(Slot& slot) {
         std::size_t msg_len = static_cast<std::size_t>(conn.in[pos]) << 8 |
                               static_cast<std::size_t>(conn.in[pos + 1]);
 
-        // A zero-length message is not a DNS message and nothing can be
-        // parsed after it, so the connection is not recoverable.
         if (msg_len == 0) return false;
 
         if (conn.in.size() - pos < kLenPrefix + msg_len) break;
@@ -174,9 +165,6 @@ void TcpServer::run(const std::atomic<bool>& stop) {
             pfds.push_back(pollfd{slot.conn->fd(), events, 0});
         }
 
-        // The timeout also bounds how long a write that could not complete
-        // waits for its POLLOUT interest to be registered, and it is what
-        // drives the idle sweep on a quiet listener.
         if (poll(pfds.data(), pfds.size(), kPollTimeout) < 0 && errno != EINTR) break;
 
         if (pfds[0].revents & POLLIN) accept_one();

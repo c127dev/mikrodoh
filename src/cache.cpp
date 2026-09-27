@@ -36,7 +36,6 @@ bool DnsCache::lookup(const std::string& key, std::vector<std::uint8_t>& out,
     std::time_t now = std::time(nullptr);
     if (it == entries_.end() || now >= it->second.expires) return false;
 
-    // The caller overwrites the first two bytes with the client's transaction ID.
     if (it->second.response.size() < 2) return false;
 
     order_.splice(order_.begin(), order_, it->second.order);

@@ -22,7 +22,5 @@ void Stats::print(std::ostream& os) const {
     if (ok == 0) os << "n/a";
     else         os << (hits * 100 / ok) << "%";
 
-    // stdout is a pipe under a container runtime, so the line would otherwise
-    // sit in the buffer until the process exits.
     os << "\n" << std::flush;
 }

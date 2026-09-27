@@ -8,7 +8,6 @@
 #include <string>
 
 namespace {
-
 size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
     size_t bytes = size * nmemb;
     auto*  out   = static_cast<std::vector<std::uint8_t>*>(userp);
@@ -17,11 +16,8 @@ size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
     return bytes;
 }
 
-// An idle handle keeps its connection warm, but one per completed transfer
-// would grow the pool to MAX_INFLIGHT and hold that many sockets open.
 constexpr std::size_t kMaxIdleHandles = 64;
 
-// How long shutdown waits for in-flight transfers before failing them.
 constexpr int kDrainTimeoutMs = 2000;
 
 }  // namespace
@@ -48,14 +44,11 @@ DohWorker::~DohWorker() {
 }
 
 void DohWorker::configure(CURL* handle) const {
-    // The URL, timeouts and bootstrap addresses are not set here: a pooled
-    // handle outlives a reload, so start() sets them per transfer.
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(handle, CURLOPT_HTTPHEADER, headers_);
     curl_easy_setopt(handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
 
-    // Wait for the existing multiplexed connection instead of opening another,
-    // which is what keeps every stream on one HTTP/2 connection.
+    // Keep every stream on one HTTP/2 connection.
     curl_easy_setopt(handle, CURLOPT_PIPEWAIT, 1L);
 
     if (cfg_.ip_version != IpVersion::Any)
@@ -105,9 +98,7 @@ std::size_t DohWorker::pick_url(const Transfer* t) const {
     for (std::size_t i = t->url; i < n; i++)
         if (health_[i].down_until <= now) return i;
 
-    // Everything left is in cooldown. Send the query to the next one anyway
-    // rather than fail it outright: that request is also the probe that ends
-    // the cooldown.
+    // All in cooldown: try the next anyway, that request ends the cooldown.
     return t->url;
 }
 
@@ -156,13 +147,9 @@ void DohWorker::start(Transfer* t) {
     t->response.clear();
     curl_easy_setopt(handle, CURLOPT_URL, up.urls[t->url].c_str());
 
-    // A resolver named by hostname is reached through this, not getaddrinfo:
-    // that lookup would be sent to whatever the box's resolver is, which is
-    // this daemon, and never complete. The list lives as long as `t->up`.
+    // Bootstrap addresses: getaddrinfo would ask this daemon and never return.
     curl_easy_setopt(handle, CURLOPT_RESOLVE, up.resolve);
 
-    // Without these a stalled transfer holds its in-flight slot forever, and
-    // enough of them pin MAX_INFLIGHT with no recovery.
     curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, static_cast<long>(up.request_timeout_ms));
     curl_easy_setopt(handle, CURLOPT_CONNECTTIMEOUT_MS,
                      static_cast<long>(up.connect_timeout_ms));
@@ -194,14 +181,10 @@ void DohWorker::finish(Transfer* t, bool ok) {
     std::vector<Transfer*> followers = coalescer_.release(t);
 
     if (ok) {
-        // An HTTP 200 only means the resolver answered. SERVFAIL and REFUSED
-        // are transient or policy-driven, so they are not cached at all; a
-        // negative answer is cached for a shorter time than a real one.
         std::uint8_t rc = dns::rcode(t->response.data(), t->response.size());
         if (rc == dns::kRcodeNoError || rc == dns::kRcodeNxDomain) {
             bool negative = rc == dns::kRcodeNxDomain ||
                             !dns::has_answers(t->response.data(), t->response.size());
-            // CACHE_NEGATIVE=0 keeps negative answers out of the cache.
             if (!negative)
                 cache_.store(t->cache_key, t->response);
             else if (cfg_.cache_negative_ttl > 0)
@@ -211,8 +194,6 @@ void DohWorker::finish(Transfer* t, bool ok) {
 
     const std::vector<std::uint8_t>* response = ok ? &t->response : nullptr;
 
-    // Every resolver failed. An expired answer keeps the LAN resolving through
-    // an uplink outage, where SERVFAIL would not.
     std::vector<std::uint8_t> stale;
     if (!ok && cache_.lookup_stale(t->cache_key, stale)) {
         response = &stale;
@@ -225,9 +206,6 @@ void DohWorker::finish(Transfer* t, bool ok) {
     answer(t, response);
 }
 
-// Replies to `t` with `response` under its own transaction ID, or SERVFAIL
-// when `response` is null, then frees it. A prefetch has no client and was
-// never counted in flight.
 void DohWorker::answer(Transfer* t, const std::vector<std::uint8_t>* response) {
     if (t->prefetch) {
         delete t;
@@ -248,8 +226,6 @@ void DohWorker::answer(Transfer* t, const std::vector<std::uint8_t>* response) {
         t->reply(out.data(), out.size());
         stats_.served++;
     } else {
-        // Say so rather than staying silent: a client with no answer waits out
-        // its own timeout before trying anything else.
         std::vector<std::uint8_t> fail = dns::make_error(
             t->payload.data(), t->payload.size(), dns::kRcodeServFail);
         if (!fail.empty()) t->reply(fail.data(), fail.size());
@@ -277,8 +253,6 @@ void DohWorker::reap() {
 
         bool transferred = msg->data.result == CURLE_OK && http_code == 200;
 
-        // An answer that does not match the question is not an answer: without
-        // this the body is relayed to the client whatever it holds.
         bool ok = transferred &&
                   dns::response_matches(t->payload.data(), t->payload.size(),
                                         t->response.data(), t->response.size());
@@ -312,7 +286,6 @@ void DohWorker::keep_warm() {
     auto now = std::chrono::steady_clock::now();
     if (now - last_start_ < std::chrono::seconds(cfg_.warm_interval_sec)) return;
 
-    // `. IN NS`: small, always answerable, and not cached here.
     auto* t    = new Transfer;
     t->warm    = true;
     t->payload = {0, 0, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 1};
@@ -330,8 +303,6 @@ void DohWorker::submit(Transfer* t) {
 void DohWorker::drain() {
     draining_ = true;
 
-    // Whatever was submitted but never started has no request in flight to wait
-    // for, so it is answered outright.
     std::vector<Transfer*> queued;
     {
         std::lock_guard<std::mutex> lock(inbox_mutex_);
@@ -339,9 +310,6 @@ void DohWorker::drain() {
     }
     for (Transfer* t : queued) finish(t, false);
 
-    // Give the transfers already on the wire a bounded window to land. Their
-    // own REQUEST_TIMEOUT_MS may be longer than an operator will wait for the
-    // process to exit.
     auto deadline = std::chrono::steady_clock::now() +
                     std::chrono::milliseconds(kDrainTimeoutMs);
 
@@ -353,13 +321,10 @@ void DohWorker::drain() {
         curl_multi_poll(multi_, nullptr, 0, 50, nullptr);
     } while (std::chrono::steady_clock::now() < deadline);
 
-    // One write: every worker drains at once and a streamed line interleaves.
     if (!active_.empty())
         std::cerr << "shutdown: failing " + std::to_string(active_.size()) +
                          " transfer(s) still in flight\n";
 
-    // Answering these is the only way their clients hear anything, and removing
-    // the handle is the only way the Transfer behind it is freed.
     for (CURL* handle : active_) {
         Transfer* t = nullptr;
         curl_easy_getinfo(handle, CURLINFO_PRIVATE, &t);
