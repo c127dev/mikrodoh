@@ -1,10 +1,10 @@
 #include "harness.h"
 
-#include "cache.h"
-#include "dispatch.h"
-#include "dns.h"
-#include "doh_worker.h"
-#include "tcp_conn.h"
+#include "dns/cache.h"
+#include "upstream/dispatch.h"
+#include "dns/dns.h"
+#include "upstream/doh_worker.h"
+#include "net/tcp_conn.h"
 
 #include <cstring>
 #include <memory>

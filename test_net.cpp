@@ -1,6 +1,6 @@
 #include "harness.h"
 
-#include "net.h"
+#include "net/net.h"
 
 #include <string>
 

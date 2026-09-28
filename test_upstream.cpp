@@ -1,7 +1,7 @@
 #include "harness.h"
 
-#include "config.h"
-#include "upstream.h"
+#include "core/config.h"
+#include "upstream/upstream.h"
 
 #include <memory>
 

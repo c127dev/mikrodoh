@@ -1,7 +1,7 @@
 #include "harness.h"
 
-#include "coalesce.h"
-#include "transfer.h"
+#include "dns/coalesce.h"
+#include "upstream/transfer.h"
 
 #include <string>
 

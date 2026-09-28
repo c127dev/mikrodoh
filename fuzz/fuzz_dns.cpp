@@ -2,9 +2,9 @@
 // function in dns.h, the cache key and the health probe get the input, and
 // the invariants their callers rely on are checked.
 
-#include "cache.h"
-#include "dns.h"
-#include "health.h"
+#include "dns/cache.h"
+#include "dns/dns.h"
+#include "dns/health.h"
 
 #include <algorithm>
 #include <cstddef>

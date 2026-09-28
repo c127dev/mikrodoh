@@ -1,7 +1,7 @@
 #include "harness.h"
 
-#include "dns.h"
-#include "health.h"
+#include "dns/dns.h"
+#include "dns/health.h"
 
 #include <cstring>
 #include <string>

@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # which is what `git worktree add .tests tests` produces.
 set(MIKRODOH_SRC "${CMAKE_CURRENT_SOURCE_DIR}/.." CACHE PATH "Checkout of the source branch")
 
-if(NOT EXISTS "${MIKRODOH_SRC}/src/dns.h")
+if(NOT EXISTS "${MIKRODOH_SRC}/src/dns/dns.h")
     message(FATAL_ERROR "No mikrodoh source at ${MIKRODOH_SRC}. Pass -DMIKRODOH_SRC=<checkout of main>.")
 endif()
 
@@ -31,19 +31,19 @@ add_executable(mikrodoh_tests
     test_tcp_conn.cpp
     test_upstream.cpp
 
-    "${MIKRODOH_SRC}/src/cache.cpp"
-    "${MIKRODOH_SRC}/src/coalesce.cpp"
-    "${MIKRODOH_SRC}/src/config.cpp"
-    "${MIKRODOH_SRC}/src/cpu.cpp"
-    "${MIKRODOH_SRC}/src/dispatch.cpp"
-    "${MIKRODOH_SRC}/src/dns.cpp"
-    "${MIKRODOH_SRC}/src/health.cpp"
-    "${MIKRODOH_SRC}/src/net.cpp"
-    "${MIKRODOH_SRC}/src/ratelimit.cpp"
-    "${MIKRODOH_SRC}/src/sandbox.cpp"
-    "${MIKRODOH_SRC}/src/tcp_conn.cpp"
-    "${MIKRODOH_SRC}/src/transfer.cpp"
-    "${MIKRODOH_SRC}/src/upstream.cpp"
+    "${MIKRODOH_SRC}/src/dns/cache.cpp"
+    "${MIKRODOH_SRC}/src/dns/coalesce.cpp"
+    "${MIKRODOH_SRC}/src/core/config.cpp"
+    "${MIKRODOH_SRC}/src/core/cpu.cpp"
+    "${MIKRODOH_SRC}/src/upstream/dispatch.cpp"
+    "${MIKRODOH_SRC}/src/dns/dns.cpp"
+    "${MIKRODOH_SRC}/src/dns/health.cpp"
+    "${MIKRODOH_SRC}/src/net/net.cpp"
+    "${MIKRODOH_SRC}/src/net/ratelimit.cpp"
+    "${MIKRODOH_SRC}/src/core/sandbox.cpp"
+    "${MIKRODOH_SRC}/src/net/tcp_conn.cpp"
+    "${MIKRODOH_SRC}/src/upstream/transfer.cpp"
+    "${MIKRODOH_SRC}/src/upstream/upstream.cpp"
 )
 
 target_include_directories(mikrodoh_tests PRIVATE "${MIKRODOH_SRC}/src")
@@ -60,10 +60,10 @@ option(MIKRODOH_FUZZ "Build the fuzz_dns target" OFF)
 if(MIKRODOH_FUZZ)
     add_executable(fuzz_dns
         fuzz/fuzz_dns.cpp
-        "${MIKRODOH_SRC}/src/cache.cpp"
-        "${MIKRODOH_SRC}/src/dns.cpp"
-        "${MIKRODOH_SRC}/src/health.cpp"
-        "${MIKRODOH_SRC}/src/net.cpp"
+        "${MIKRODOH_SRC}/src/dns/cache.cpp"
+        "${MIKRODOH_SRC}/src/dns/dns.cpp"
+        "${MIKRODOH_SRC}/src/dns/health.cpp"
+        "${MIKRODOH_SRC}/src/net/net.cpp"
     )
     target_include_directories(fuzz_dns PRIVATE "${MIKRODOH_SRC}/src")
     target_compile_options(fuzz_dns PRIVATE -g -O1 -fsanitize=fuzzer,address,undefined

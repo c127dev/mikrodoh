@@ -1,6 +1,6 @@
 #include "harness.h"
 
-#include "config.h"
+#include "core/config.h"
 
 #include <sstream>
 

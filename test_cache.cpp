@@ -1,6 +1,6 @@
 #include "harness.h"
 
-#include "cache.h"
+#include "dns/cache.h"
 
 #include <chrono>
 #include <initializer_list>

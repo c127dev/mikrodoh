@@ -1,6 +1,6 @@
 #include "harness.h"
 
-#include "dns.h"
+#include "dns/dns.h"
 
 #include <algorithm>
 #include <cstring>
