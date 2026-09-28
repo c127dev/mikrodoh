@@ -1,8 +1,8 @@
-#include "doh_worker.h"
+#include "upstream/doh_worker.h"
 
-#include "cache.h"
-#include "dns.h"
-#include "health.h"
+#include "dns/cache.h"
+#include "dns/dns.h"
+#include "dns/health.h"
 
 #include <iostream>
 #include <string>

@@ -1,9 +1,9 @@
-#include "dispatch.h"
+#include "upstream/dispatch.h"
 
-#include "cache.h"
-#include "dns.h"
-#include "doh_worker.h"
-#include "health.h"
+#include "dns/cache.h"
+#include "dns/dns.h"
+#include "dns/health.h"
+#include "upstream/doh_worker.h"
 
 #include <functional>
 #include <iostream>

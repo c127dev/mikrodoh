@@ -9,8 +9,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include "tcp_conn.h"
-#include "upstream.h"
+#include "net/tcp_conn.h"
+#include "upstream/upstream.h"
 
 // `conn` set means the reply goes over TCP, otherwise to `udp_fd`.
 struct Transfer {

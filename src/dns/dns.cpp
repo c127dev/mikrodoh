@@ -1,4 +1,4 @@
-#include "dns.h"
+#include "dns/dns.h"
 
 #include <cstring>
 

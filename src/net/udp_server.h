@@ -6,8 +6,8 @@
 
 #include <sys/socket.h>
 
-#include "config.h"
-#include "stats.h"
+#include "core/config.h"
+#include "core/stats.h"
 
 class Dispatcher;
 

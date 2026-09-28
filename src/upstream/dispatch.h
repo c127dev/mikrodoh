@@ -4,10 +4,10 @@
 #include <memory>
 #include <vector>
 
-#include "config.h"
-#include "ratelimit.h"
-#include "stats.h"
-#include "transfer.h"
+#include "core/config.h"
+#include "core/stats.h"
+#include "net/ratelimit.h"
+#include "upstream/transfer.h"
 
 class DnsCache;
 class DohWorker;

@@ -1,6 +1,6 @@
-#include "cache.h"
+#include "dns/cache.h"
 
-#include "dns.h"
+#include "dns/dns.h"
 
 DnsCache::DnsCache(int ttl_seconds, std::size_t max_entries, int stale_seconds, int min_ttl,
                    int max_ttl)

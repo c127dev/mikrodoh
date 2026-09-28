@@ -1,6 +1,6 @@
-#include "transfer.h"
+#include "upstream/transfer.h"
 
-#include "dns.h"
+#include "dns/dns.h"
 
 #include <sys/socket.h>
 

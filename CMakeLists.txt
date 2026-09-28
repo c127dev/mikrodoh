@@ -17,24 +17,24 @@ find_package(Threads REQUIRED)
 
 add_executable(mikrodoh
     src/main.cpp
-    src/net.cpp
-    src/cache.cpp
-    src/coalesce.cpp
-    src/config.cpp
-    src/cpu.cpp
-    src/dispatch.cpp
-    src/dns.cpp
-    src/doh_worker.cpp
-    src/health.cpp
-    src/privs.cpp
-    src/ratelimit.cpp
-    src/sandbox.cpp
-    src/server.cpp
-    src/stats.cpp
-    src/tcp_conn.cpp
-    src/tcp_server.cpp
-    src/transfer.cpp
-    src/upstream.cpp
+    src/core/config.cpp
+    src/core/cpu.cpp
+    src/core/privs.cpp
+    src/core/sandbox.cpp
+    src/core/stats.cpp
+    src/dns/cache.cpp
+    src/dns/coalesce.cpp
+    src/dns/dns.cpp
+    src/dns/health.cpp
+    src/net/net.cpp
+    src/net/ratelimit.cpp
+    src/net/tcp_conn.cpp
+    src/net/tcp_server.cpp
+    src/net/udp_server.cpp
+    src/upstream/dispatch.cpp
+    src/upstream/doh_worker.cpp
+    src/upstream/transfer.cpp
+    src/upstream/upstream.cpp
 )
 
 # The daemon parses untrusted network bytes.
@@ -47,6 +47,7 @@ target_compile_options(mikrodoh PRIVATE
     -fPIE
     ${MIKRODOH_TUNE_ARGS})
 target_link_libraries(mikrodoh PRIVATE -pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack)
+target_include_directories(mikrodoh PRIVATE src)
 target_link_libraries(mikrodoh PRIVATE CURL::libcurl Threads::Threads)
 
 install(TARGETS mikrodoh RUNTIME DESTINATION bin)

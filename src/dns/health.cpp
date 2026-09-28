@@ -1,8 +1,8 @@
-#include "health.h"
+#include "dns/health.h"
 
-#include "config.h"
-#include "dns.h"
-#include "net.h"
+#include "core/config.h"
+#include "dns/dns.h"
+#include "net/net.h"
 
 #include <iostream>
 #include <string>

@@ -9,17 +9,17 @@
 
 #include <curl/curl.h>
 
-#include "cache.h"
-#include "config.h"
-#include "dispatch.h"
-#include "doh_worker.h"
-#include "health.h"
-#include "privs.h"
-#include "sandbox.h"
-#include "server.h"
-#include "stats.h"
-#include "tcp_server.h"
-#include "upstream.h"
+#include "core/config.h"
+#include "core/privs.h"
+#include "core/sandbox.h"
+#include "core/stats.h"
+#include "dns/cache.h"
+#include "dns/health.h"
+#include "net/tcp_server.h"
+#include "net/udp_server.h"
+#include "upstream/dispatch.h"
+#include "upstream/doh_worker.h"
+#include "upstream/upstream.h"
 
 namespace {
 std::atomic<bool> g_stop{false};

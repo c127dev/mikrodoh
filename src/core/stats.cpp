@@ -1,4 +1,4 @@
-#include "stats.h"
+#include "core/stats.h"
 
 #include <ostream>
 

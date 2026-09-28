@@ -9,11 +9,11 @@
 
 #include <curl/curl.h>
 
-#include "coalesce.h"
-#include "config.h"
-#include "stats.h"
-#include "transfer.h"
-#include "upstream.h"
+#include "core/config.h"
+#include "core/stats.h"
+#include "dns/coalesce.h"
+#include "upstream/transfer.h"
+#include "upstream/upstream.h"
 
 class DnsCache;
 

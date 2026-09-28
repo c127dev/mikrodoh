@@ -1,7 +1,7 @@
-#include "config.h"
+#include "core/config.h"
 
-#include "cpu.h"
-#include "net.h"
+#include "core/cpu.h"
+#include "net/net.h"
 
 #include <cctype>
 #include <cerrno>

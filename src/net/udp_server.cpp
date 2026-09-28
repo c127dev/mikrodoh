@@ -1,8 +1,8 @@
-#include "server.h"
+#include "net/udp_server.h"
 
-#include "dispatch.h"
-#include "net.h"
-#include "transfer.h"
+#include "net/net.h"
+#include "upstream/dispatch.h"
+#include "upstream/transfer.h"
 
 #include <cstring>
 #include <iostream>

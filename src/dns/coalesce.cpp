@@ -1,6 +1,6 @@
-#include "coalesce.h"
+#include "dns/coalesce.h"
 
-#include "transfer.h"
+#include "upstream/transfer.h"
 
 bool Coalescer::join(Transfer* t) {
     if (t->cache_key.empty()) return false;

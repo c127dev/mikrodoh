@@ -4,9 +4,9 @@
 #include <memory>
 #include <vector>
 
-#include "config.h"
-#include "stats.h"
-#include "tcp_conn.h"
+#include "core/config.h"
+#include "core/stats.h"
+#include "net/tcp_conn.h"
 
 class Dispatcher;
 

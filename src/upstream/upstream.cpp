@@ -1,6 +1,6 @@
-#include "upstream.h"
+#include "upstream/upstream.h"
 
-#include "config.h"
+#include "core/config.h"
 
 #include <curl/curl.h>
 
