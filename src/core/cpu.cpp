@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Johan Alvarado
+
 #include "core/cpu.h"
 
 #if defined(__x86_64__) || defined(__i386__)

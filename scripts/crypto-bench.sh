@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Johan Alvarado
 # Measures the two AEADs the daemon chooses between, on this device, and
 # reports whether the OpenSSL in use has its assembly paths compiled in.
 # Run it on the target board: the numbers are what CIPHER=auto is guessing at.

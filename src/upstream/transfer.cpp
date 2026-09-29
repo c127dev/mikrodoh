@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Johan Alvarado
+
 #include "upstream/transfer.h"
 
 #include "dns/dns.h"

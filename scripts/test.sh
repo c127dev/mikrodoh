@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Johan Alvarado
 # Builds the daemon, runs it on an unprivileged port and resolves a name
 # through it over UDP and over TCP. Requires dig (bind-tools).
 set -eu

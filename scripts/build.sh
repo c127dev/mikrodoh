@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Johan Alvarado
 # Usage: scripts/build.sh [board]
 # Board names are the file stems in boards/, e.g. mikrotik-rb4011igs.
 set -eu
