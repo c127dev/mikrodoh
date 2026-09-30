@@ -12,6 +12,8 @@ endif()
 set(MIKRODOH_TUNE "" CACHE STRING "Extra compiler flags for the target board")
 separate_arguments(MIKRODOH_TUNE_ARGS NATIVE_COMMAND "${MIKRODOH_TUNE}")
 
+option(MIKRODOH_SMALL "Optimise for size: -Os, LTO, section GC, stripped" OFF)
+
 find_package(CURL REQUIRED)
 find_package(Threads REQUIRED)
 
@@ -49,5 +51,10 @@ target_compile_options(mikrodoh PRIVATE
 target_link_libraries(mikrodoh PRIVATE -pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack)
 target_include_directories(mikrodoh PRIVATE src)
 target_link_libraries(mikrodoh PRIVATE CURL::libcurl Threads::Threads)
+
+if(MIKRODOH_SMALL)
+    target_compile_options(mikrodoh PRIVATE -Os -flto -ffunction-sections -fdata-sections)
+    target_link_options(mikrodoh PRIVATE -flto -Wl,--gc-sections -s)
+endif()
 
 install(TARGETS mikrodoh RUNTIME DESTINATION bin)
