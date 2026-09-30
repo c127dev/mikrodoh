@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Johan Alvarado
+
 #include "harness.h"
 
 #include "net/net.h"

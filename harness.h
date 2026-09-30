@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Johan Alvarado
+
 #pragma once
 
 // A test registry small enough to read in one sitting. A file defines cases

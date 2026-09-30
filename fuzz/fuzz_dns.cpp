@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Johan Alvarado
+
 // libFuzzer entry point for the code that parses bytes off the wire. Every
 // function in dns.h, the cache key and the health probe get the input, and
 // the invariants their callers rely on are checked.
