@@ -1,0 +1,50 @@
+#!/bin/sh /etc/rc.common
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Johan Alvarado
+
+START=60
+USE_PROCD=1
+PROG=/usr/sbin/mikrodoh
+
+KEYS="listen_addr listen_port doh_url doh_bootstrap workers udp_readers
+check_cert tcp_keep_alive cache cache_negative cache_min_ttl cache_max_ttl
+prefetch serve_stale max_inflight rate_limit_qps rate_limit_burst
+rate_limit_v4_prefix rate_limit_v6_prefix rcvbuf_kb connect_timeout_ms
+request_timeout_ms resolver_cooldown_ms warm_interval_sec cipher ip_version
+ipv6_v6only run_as_user run_as_group sandbox stats_interval_sec tcp_max_conns
+tcp_idle_sec"
+
+FAILOVER_N=0
+
+add_failover() {
+	FAILOVER_N=$((FAILOVER_N + 1))
+	procd_append_param env "DOH_FAILOVER_URL_$FAILOVER_N=$1"
+}
+
+start_service() {
+	local enabled key value
+
+	config_load mikrodoh
+	config_get_bool enabled main enabled 1
+	[ "$enabled" = 1 ] || return 0
+
+	procd_open_instance
+	procd_set_param command "$PROG"
+	for key in $KEYS; do
+		config_get value main "$key"
+		[ -n "$value" ] && procd_append_param env "$(echo "$key" | tr a-z A-Z)=$value"
+	done
+	config_list_foreach main doh_failover_url add_failover
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}
+
+reload_service() {
+	restart
+}
+
+service_triggers() {
+	procd_add_reload_trigger mikrodoh
+}
