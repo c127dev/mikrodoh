@@ -46,4 +46,4 @@ value stops startup and names the key.
 
 `CONFIG_FILE` points at a file of `KEY=VALUE` lines, the same format as
 `boards/*.conf`. Blank lines and `#` comments are skipped. Its keys override the
-environment. `SIGHUP` re-reads it; see [[How-to]].
+environment. `SIGHUP` re-reads it; see [How-to](How-to.md).

@@ -39,4 +39,4 @@ podman run -d --name mikrodoh -p 53:53/udp -p 53:53/tcp \
 
 ## OpenWrt
 
-See [[OpenWrt]].
+See [OpenWrt](OpenWrt.md).

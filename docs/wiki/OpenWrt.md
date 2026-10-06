@@ -32,7 +32,7 @@ config mikrodoh 'main'
 	option run_as_user 'nobody'
 ```
 
-Every key from [[Configuration]] is accepted in lower case (`rate_limit_qps`,
+Every key from [Configuration](Configuration.md) is accepted in lower case (`rate_limit_qps`,
 `serve_stale`, ...). `doh_failover_url` is a list and becomes
 `DOH_FAILOVER_URL_1`, `_2`, ... in order.
 
