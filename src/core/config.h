@@ -47,6 +47,7 @@ struct Config {
     int  serve_stale        = 86400;
 
     // Load control
+    bool refuse_any           = true;
     long max_inflight         = 512;
     long rate_limit_qps       = 0;
     long rate_limit_burst     = 0;  // 0 means "same as qps"

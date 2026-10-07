@@ -44,6 +44,11 @@ std::uint8_t rcode(const std::uint8_t* msg, std::size_t len);
 
 bool has_answers(const std::uint8_t* msg, std::size_t len);
 
+bool is_any(const std::uint8_t* query, std::size_t len);
+
+// RFC 8482: a minimal HINFO answer instead of every record set.
+std::vector<std::uint8_t> any_reply(const std::uint8_t* query, std::size_t len);
+
 void sanitize_edns(std::vector<std::uint8_t>& query);
 
 long min_ttl(const std::uint8_t* msg, std::size_t len);

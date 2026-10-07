@@ -52,6 +52,13 @@ void Dispatcher::dispatch(std::unique_ptr<Transfer> t) {
         return;
     }
 
+    if (cfg_.refuse_any && dns::is_any(msg, len)) {
+        std::vector<std::uint8_t> reply = dns::any_reply(msg, len);
+        if (!reply.empty()) t->reply(reply.data(), reply.size());
+        stats_.served++;
+        return;
+    }
+
     if (health::is_probe(msg, len)) {
         t->health_query = std::move(t->payload);
         t->payload      = health::upstream_request(msg, len);

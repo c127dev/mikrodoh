@@ -8,7 +8,7 @@ PROG=/usr/sbin/mikrodoh
 
 KEYS="listen_addr listen_port doh_url doh_bootstrap workers udp_readers
 check_cert tcp_keep_alive cache cache_negative cache_min_ttl cache_max_ttl
-prefetch serve_stale max_inflight rate_limit_qps rate_limit_burst
+prefetch refuse_any serve_stale max_inflight rate_limit_qps rate_limit_burst
 rate_limit_v4_prefix rate_limit_v6_prefix rcvbuf_kb connect_timeout_ms
 request_timeout_ms resolver_cooldown_ms warm_interval_sec cipher ip_version
 ipv6_v6only run_as_user run_as_group sandbox stats_interval_sec tcp_max_conns

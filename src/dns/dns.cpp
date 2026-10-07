@@ -11,6 +11,8 @@ constexpr std::uint8_t  kLabelMask   = 0xC0;  // top two bits mark a pointer
 constexpr std::size_t   kMaxNameLen  = 255;
 constexpr std::uint8_t  kOpcodeQuery = 0;
 constexpr std::uint16_t kTypeOpt     = 41;
+constexpr std::uint16_t kTypeHinfo   = 13;
+constexpr std::uint16_t kTypeAny     = 255;
 constexpr std::uint16_t kOptEcs      = 8;
 constexpr std::uint16_t kOptPadding  = 12;
 constexpr std::size_t   kPadBlock    = 128;  // RFC 8467 section 4.1, queries
@@ -331,6 +333,25 @@ std::vector<std::uint8_t> truncate(const std::uint8_t* resp, std::size_t len,
         write16(out.data() + 10, 1);  // ARCOUNT
     }
 
+    return out;
+}
+
+bool is_any(const std::uint8_t* msg, std::size_t len) {
+    std::size_t end = question_end(msg, len);
+    return end != 0 && read16(msg + end - 4) == kTypeAny;
+}
+
+std::vector<std::uint8_t> any_reply(const std::uint8_t* query, std::size_t len) {
+    std::vector<std::uint8_t> out = make_error(query, len, kRcodeNoError);
+    if (out.size() <= kHeaderLen) return out;
+
+    out[7] = 1;  // ANCOUNT
+    out.insert(out.end(), {0xC0, 12,
+                           0, kTypeHinfo, 0, 1,
+                           0, 0, 0x0E, 0x10,  // TTL 3600
+                           0, 9,
+                           7, 'R', 'F', 'C', '8', '4', '8', '2',
+                           0});
     return out;
 }
 

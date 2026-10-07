@@ -15,6 +15,7 @@ value stops startup and names the key.
 | `CIPHER` | `auto` | `auto`, `chacha` or `aes` |
 | `WORKERS` | CPU cores | Worker threads |
 | `UDP_READERS` | `WORKERS` | UDP reader threads |
+| `REFUSE_ANY` | `true` | Answer ANY with a minimal HINFO (RFC 8482) |
 | `MAX_INFLIGHT` | `512` | Queries in progress before new ones are dropped |
 | `RATE_LIMIT_QPS` | `0` | Queries per second per client, `0` = off |
 | `RATE_LIMIT_BURST` | `RATE_LIMIT_QPS` | How far a client may burst above that |
