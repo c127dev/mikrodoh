@@ -610,3 +610,21 @@ TEST(sanitize_edns_keeps_the_do_bit_without_ecs) {
     CHECK(dns::udp_limit(q.data(), q.size()).dnssec_ok);
     CHECK(q[3] & 0x10);
 }
+
+TEST(is_any_matches_qtype_255_only) {
+    std::vector<std::uint8_t> a = query("example.com");
+    CHECK(!dns::is_any(a.data(), a.size()));
+    a[a.size() - 3] = 255;
+    CHECK(dns::is_any(a.data(), a.size()));
+}
+
+TEST(any_reply_is_one_hinfo_record) {
+    std::vector<std::uint8_t> q = query("example.com");
+    q[q.size() - 3] = 255;
+    std::vector<std::uint8_t> r = dns::any_reply(q.data(), q.size());
+    CHECK(dns::response_matches(q.data(), q.size(), r.data(), r.size()));
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeNoError);
+    CHECK(dns::has_answers(r.data(), r.size()));
+    CHECK(r.size() == q.size() + 12 + 9);
+    CHECK(r[q.size() + 3] == 13);
+}
