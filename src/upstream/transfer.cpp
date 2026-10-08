@@ -5,6 +5,8 @@
 
 #include "dns/dns.h"
 
+#include <cerrno>
+
 #include <sys/socket.h>
 
 void Transfer::reply(const std::uint8_t* data, std::size_t len) const {
@@ -27,6 +29,12 @@ void Transfer::reply(const std::uint8_t* data, std::size_t len) const {
         }
     }
 
-    sendto(udp_fd, data, len, MSG_NOSIGNAL,
-           reinterpret_cast<const sockaddr*>(&client_addr), addr_len);
+    // A full socket buffer is transient: retry a few times before dropping.
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (sendto(udp_fd, data, len, MSG_NOSIGNAL,
+                   reinterpret_cast<const sockaddr*>(&client_addr), addr_len) >= 0)
+            return;
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS && errno != EINTR)
+            return;
+    }
 }
