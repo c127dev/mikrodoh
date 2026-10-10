@@ -14,8 +14,27 @@ make menuconfig    # Network > IP Addresses and Names > mikrodoh
 make package/mikrodoh/compile -j"$(nproc)"
 ```
 
-The ipk/apk lands under `bin/packages/<arch>/base/`. Without HTTP/2 in libcurl
+The package lands under `bin/packages/<arch>/base/`: an `.apk` on OpenWrt 25.12
+and later, an `.ipk` on 24.10 and earlier. The same Makefile builds both. Without HTTP/2 in libcurl
 every query opens its own TLS connection.
+
+## Install
+
+OpenWrt 25.12 and later (apk):
+
+```bash
+apk add --allow-untrusted mikrodoh-*.apk
+```
+
+OpenWrt 24.10 and earlier (opkg):
+
+```bash
+opkg update
+opkg install mikrodoh_*.ipk
+```
+
+Both pull `libcurl`, `libnghttp2` and `libstdcpp` from the official feeds.
+Tested on x86-64 24.10.3 and 25.12.3.
 
 ## Configure
 
