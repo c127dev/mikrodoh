@@ -138,6 +138,9 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ./build-tests/mikrodoh_tests
 
+      - name: OpenWrt init script
+        run: MIKRODOH_SRC="$PWD" sh .tests/openwrt/test_init.sh
+
   image:
     needs: [plan, tests]
     runs-on: ubuntu-latest
