@@ -29,6 +29,7 @@ add_executable(mikrodoh_tests
     test_ratelimit.cpp
     test_sandbox.cpp
     test_tcp_conn.cpp
+    test_transfer.cpp
     test_upstream.cpp
 
     "${MIKRODOH_SRC}/src/dns/cache.cpp"
@@ -73,3 +74,5 @@ endif()
 
 enable_testing()
 add_test(NAME units COMMAND mikrodoh_tests)
+add_test(NAME openwrt_init COMMAND sh "${CMAKE_CURRENT_SOURCE_DIR}/openwrt/test_init.sh")
+set_tests_properties(openwrt_init PROPERTIES ENVIRONMENT "MIKRODOH_SRC=${MIKRODOH_SRC}")

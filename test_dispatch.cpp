@@ -34,7 +34,7 @@ UpstreamSource& upstream() {
     return source;
 }
 
-std::vector<std::uint8_t> query(const std::string& name) {
+std::vector<std::uint8_t> query(const std::string& name, std::uint8_t qtype = 1) {
     std::vector<std::uint8_t> q{0x12, 0x34, 0x01, 0x00, 0x00, 0x01,
                                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
@@ -50,7 +50,7 @@ std::vector<std::uint8_t> query(const std::string& name) {
 
     q.push_back(0x00);
     q.push_back(0x00);
-    q.push_back(0x01);  // QTYPE A
+    q.push_back(qtype);
     q.push_back(0x00);
     q.push_back(0x01);  // QCLASS IN
     return q;
@@ -431,4 +431,32 @@ TEST(prefetch_off_never_refreshes) {
     Pair p;
     for (int i = 0; i < 3; i++) dispatcher.dispatch(p.transfer(q));
     CHECK(stats.prefetched.load() == 0);
+}
+
+TEST(an_any_query_is_answered_locally_with_hinfo) {
+    Fixture f;
+    f.workers.push_back(std::make_unique<DohWorker>(f.cfg, f.cache, f.stats, upstream()));
+
+    Pair                      p;
+    std::vector<std::uint8_t> q = query("example.com", 255);
+    f.dispatcher.dispatch(p.transfer(q));
+
+    std::vector<std::uint8_t> r = p.received();
+    CHECK(dns::response_matches(q.data(), q.size(), r.data(), r.size()));
+    CHECK(dns::rcode(r.data(), r.size()) == dns::kRcodeNoError);
+    CHECK(dns::has_answers(r.data(), r.size()));
+    CHECK(f.stats.served.load() == 1);
+    CHECK(f.stats.inflight.load() == 0);
+}
+
+TEST(an_any_query_is_forwarded_when_refuse_any_is_off) {
+    Fixture f;
+    f.cfg.refuse_any = false;
+    f.workers.push_back(std::make_unique<DohWorker>(f.cfg, f.cache, f.stats, upstream()));
+
+    Pair p;
+    f.dispatcher.dispatch(p.transfer(query("example.com", 255)));
+
+    CHECK(p.received().empty());
+    CHECK(f.stats.inflight.load() == 1);
 }
