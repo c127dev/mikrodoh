@@ -8,10 +8,11 @@ a UCI config.
 Inside an OpenWrt buildroot or SDK:
 
 ```bash
-cp -r /path/to/mikrodoh/openwrt/mikrodoh package/
+cp -r /path/to/mikrodoh/openwrt/mikrodoh /path/to/mikrodoh/openwrt/luci-app-mikrodoh package/
 make menuconfig    # Network > IP Addresses and Names > mikrodoh
                    # Libraries > libcurl > HTTP/2 support (LIBCURL_NGHTTP2)
 make package/mikrodoh/compile -j"$(nproc)"
+make package/luci-app-mikrodoh/compile -j"$(nproc)"   # optional web UI
 ```
 
 The package lands under `bin/packages/<arch>/base/`: an `.apk` on OpenWrt 25.12
@@ -65,7 +66,17 @@ uci commit mikrodoh
 it only reacts to config files that existed when it last ran. Use
 `/etc/init.d/mikrodoh reload` or reboot once.
 
-There is no LuCI page yet, so LuCI cannot edit `/etc/config/mikrodoh`.
+## LuCI
+
+`openwrt/luci-app-mikrodoh/` adds a page under Services > MikroDoH with the
+service status and tabs for the listener, resolvers, cache and limits. Build it
+next to the daemon (it needs the `luci` feed) and install both:
+
+```bash
+apk add --allow-untrusted mikrodoh-*.apk luci-app-mikrodoh-*.apk
+```
+
+Save & Apply restarts the daemon with the new settings.
 
 ## Use it from dnsmasq
 
