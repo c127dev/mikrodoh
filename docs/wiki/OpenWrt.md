@@ -61,6 +61,12 @@ uci commit mikrodoh
 /etc/init.d/mikrodoh reload
 ```
 
+`reload_config` also works, except for the first change after a fresh install:
+it only reacts to config files that existed when it last ran. Use
+`/etc/init.d/mikrodoh reload` or reboot once.
+
+There is no LuCI page yet, so LuCI cannot edit `/etc/config/mikrodoh`.
+
 ## Use it from dnsmasq
 
 dnsmasq keeps port 53 and forwards to MikroDoH:
