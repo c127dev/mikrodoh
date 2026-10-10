@@ -4,7 +4,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=mikrodoh
-PKG_VERSION:=2026.09.23
+PKG_VERSION:=2026.10.09
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
