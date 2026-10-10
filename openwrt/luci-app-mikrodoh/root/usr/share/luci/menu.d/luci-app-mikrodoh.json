@@ -1,0 +1,13 @@
+{
+	"admin/services/mikrodoh": {
+		"title": "MikroDoH",
+		"action": {
+			"type": "view",
+			"path": "mikrodoh"
+		},
+		"depends": {
+			"acl": [ "luci-app-mikrodoh" ],
+			"uci": { "mikrodoh": true }
+		}
+	}
+}

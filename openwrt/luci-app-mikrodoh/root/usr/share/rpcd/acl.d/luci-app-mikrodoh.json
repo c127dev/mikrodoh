@@ -1,0 +1,14 @@
+{
+	"luci-app-mikrodoh": {
+		"description": "Grant access to MikroDoH configuration and service status",
+		"read": {
+			"ubus": {
+				"service": [ "list" ]
+			},
+			"uci": [ "mikrodoh" ]
+		},
+		"write": {
+			"uci": [ "mikrodoh" ]
+		}
+	}
+}
